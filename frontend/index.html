@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Boardflow — Instant Chess Analysis</title>
+
+  <!-- chess.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <!-- chessboard.js -->
+  <link  rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+  <!-- jQuery (required by chessboard.js) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:         #0f1117;
+      --surface:    #1a1d27;
+      --surface2:   #222635;
+      --border:     #2e3347;
+      --accent:     #7c6af7;
+      --accent2:    #5e4fd6;
+      --text:       #e8eaf0;
+      --text-muted: #6b7394;
+      --green:      #4caf73;
+      --yellow:     #f0c040;
+      --orange:     #f07840;
+      --red:        #e04040;
+      --blue:       #4a9eff;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+
+    /* ── Nav ──────────────────────────────────────────────────────────── */
+    nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 32px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .logo-icon { font-size: 24px; }
+    .logo span { color: var(--accent); }
+    .badge {
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 20px;
+      letter-spacing: 0.3px;
+    }
+    .powered-by {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .powered-by strong { color: var(--text); }
+
+    /* ── Main layout ──────────────────────────────────────────────────── */
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 24px;
+    }
+
+    /* ── Hero section ─────────────────────────────────────────────────── */
+    #hero {
+      text-align: center;
+      padding: 60px 20px 40px;
+    }
+    #hero h1 {
+      font-size: 52px;
+      font-weight: 800;
+      letter-spacing: -2px;
+      line-height: 1.1;
+      margin-bottom: 16px;
+    }
+    #hero h1 span { color: var(--accent); }
+    #hero p {
+      font-size: 18px;
+      color: var(--text-muted);
+      max-width: 520px;
+      margin: 0 auto 36px;
+    }
+
+    /* ── Upload card ──────────────────────────────────────────────────── */
+    #upload-section {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+    }
+    .card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+
+    /* Drop zone */
+    #drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      margin-bottom: 20px;
+    }
+    #drop-zone:hover, #drop-zone.dragover {
+      border-color: var(--accent);
+      background: rgba(124,106,247,0.06);
+    }
+    #drop-zone .drop-icon { font-size: 48px; margin-bottom: 12px; }
+    #drop-zone p { color: var(--text-muted); font-size: 15px; }
+    #drop-zone p strong { color: var(--text); }
+    #drop-zone small { font-size: 12px; color: var(--text-muted); }
+    #file-input { display: none; }
+    #file-name {
+      font-size: 13px;
+      color: var(--green);
+      margin-top: 8px;
+      font-weight: 500;
+    }
+
+    /* Config fields */
+    .field-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+    .field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+    }
+    .field input, .field select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .field input:focus, .field select:focus { border-color: var(--accent); }
+    .field input[type="password"] { letter-spacing: 2px; }
+    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      width: 100%;
+      font-size: 16px;
+      padding: 14px;
+    }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-ghost {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Progress */
+    #progress-section {
+      display: none;
+      margin-top: 20px;
+    }
+    .progress-bar-wrap {
+      background: var(--surface2);
+      border-radius: 99px;
+      height: 6px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--blue));
+      border-radius: 99px;
+      transition: width 0.4s ease;
+      width: 0%;
+    }
+    #progress-label { font-size: 13px; color: var(--text-muted); }
+
+    /* ── Results section ──────────────────────────────────────────────── */
+    #results-section { display: none; }
+
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 800px) {
+      .results-grid { grid-template-columns: 1fr; }
+    }
+
+    /* Stats row */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-card .stat-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .stat-card .stat-value {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      color: var(--accent);
+    }
+    .stat-card .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    /* Accuracy bars */
+    .accuracy-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .accuracy-section h3 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+    .acc-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .acc-label { font-size: 13px; font-weight: 600; width: 52px; }
+    .acc-bar-wrap {
+      flex: 1;
+      background: var(--surface2);
+      border-radius: 99px;
+      height: 8px;
+      overflow: hidden;
+    }
+    .acc-bar {
+      height: 100%;
+      border-radius: 99px;
+      transition: width 1s ease;
+    }
+    .acc-bar.white-bar { background: linear-gradient(90deg, #e0e0e0, #fff); }
+    .acc-bar.black-bar { background: linear-gradient(90deg, var(--accent), var(--blue)); }
+    .acc-pct { font-size: 14px; font-weight: 700; width: 44px; text-align: right; }
+
+    /* Board */
+    #board-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    #board-wrap h3 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+    #board { width: 100%; max-width: 420px; margin: 0 auto; }
+    .board-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .board-controls .move-indicator {
+      font-size: 13px;
+      color: var(--text-muted);
+      min-width: 80px;
+      text-align: center;
+    }
+
+    /* Move list */
+    #move-list-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      max-height: 520px;
+      overflow-y: auto;
+    }
+    #move-list-wrap h3 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+      position: sticky;
+      top: 0;
+      background: var(--surface);
+      padding-bottom: 8px;
+    }
+    .move-row {
+      display: grid;
+      grid-template-columns: 28px 1fr 1fr;
+      gap: 4px;
+      font-size: 14px;
+      border-radius: 6px;
+      padding: 2px 4px;
+    }
+    .move-row:hover { background: var(--surface2); }
+    .move-num { color: var(--text-muted); font-size: 12px; padding-top: 2px; }
+    .move-cell {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      padding: 3px 6px;
+      border-radius: 5px;
+      transition: background 0.15s;
+    }
+    .move-cell:hover { background: rgba(124,106,247,0.15); }
+    .move-cell.active { background: var(--accent); color: #fff; }
+    .move-cell .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot.best      { background: var(--green); }
+    .dot.excellent { background: #a0e0a0; }
+    .dot.good      { background: var(--blue); }
+    .dot.inaccuracy{ background: var(--yellow); }
+    .dot.mistake   { background: var(--orange); }
+    .dot.blunder   { background: var(--red); }
+    .dot.unknown   { background: var(--text-muted); }
+
+    /* Eval bar */
+    .eval-bar-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .eval-label { font-size: 12px; color: var(--text-muted); width: 36px; text-align: right; }
+    .eval-track {
+      flex: 1;
+      height: 8px;
+      background: var(--surface2);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .eval-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--red), var(--accent), var(--green));
+      transition: width 0.5s ease;
+    }
+    .eval-val { font-size: 12px; color: var(--text-muted); width: 36px; }
+
+    /* Error banner */
+    .error-banner {
+      background: rgba(224,64,64,0.12);
+      border: 1px solid rgba(224,64,64,0.3);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 13px;
+      color: #ff9090;
+      margin-bottom: 16px;
+    }
+
+    /* Opening pill */
+    .opening-pill {
+      display: inline-block;
+      background: rgba(124,106,247,0.15);
+      border: 1px solid rgba(124,106,247,0.3);
+      color: var(--accent);
+      padding: 4px 14px;
+      border-radius: 99px;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 20px;
+    }
+
+    /* Legend */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 40px 0 24px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Nav ──────────────────────────────────────────────────────────────── -->
+<nav>
+  <div class="logo">
+    <span class="logo-icon">♟</span>
+    Board<span>flow</span>
+  </div>
+  <div class="powered-by">Powered by <strong>Roboflow</strong> + Stockfish</div>
+  <span class="badge">BETA</span>
+</nav>
+
+<!-- ── Hero ─────────────────────────────────────────────────────────────── -->
+<main>
+<div id="hero">
+  <h1>Your game.<br><span>Instantly analysed.</span></h1>
+  <p>Upload a screen recording of any chess game. Boardflow reads every move using computer vision, then gives you Lichess-grade accuracy analysis — no PGN needed.</p>
+</div>
+
+<!-- ── Upload card ───────────────────────────────────────────────────────── -->
+<div id="upload-section">
+  <div class="card">
+    <h3>Upload your game</h3>
+
+    <div id="drop-zone">
+      <div class="drop-icon">🎬</div>
+      <p><strong>Drop your screen recording here</strong></p>
+      <p>or click to browse</p>
+      <small>MP4 · MOV · AVI · WEBM · up to 500 MB</small>
+      <div id="file-name"></div>
+    </div>
+    <input type="file" id="file-input" accept="video/*" />
+
+    <button class="btn btn-primary" id="analyze-btn" disabled>
+      ♟ Analyse Game
+    </button>
+
+    <div id="progress-section">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+      <div id="progress-label">Processing…</div>
+    </div>
+
+    <div id="upload-error" class="error-banner" style="display:none;margin-top:16px;"></div>
+  </div>
+</div>
+
+<!-- ── Results ───────────────────────────────────────────────────────────── -->
+<div id="results-section">
+  <div style="text-align:center; margin: 48px 0 28px;">
+    <div id="opening-pill" class="opening-pill"></div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">White Accuracy</div>
+      <div class="stat-value" id="stat-white">—</div>
+      <div class="stat-sub">out of 100</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Black Accuracy</div>
+      <div class="stat-value" id="stat-black">—</div>
+      <div class="stat-sub">out of 100</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Moves</div>
+      <div class="stat-value" id="stat-moves">—</div>
+      <div class="stat-sub">half-moves</div>
+    </div>
+  </div>
+
+  <!-- Accuracy bars -->
+  <div class="accuracy-section">
+    <h3>Player Accuracy</h3>
+    <div class="acc-row">
+      <div class="acc-label" style="color:#fff;">White</div>
+      <div class="acc-bar-wrap"><div class="acc-bar white-bar" id="acc-bar-white" style="width:0%"></div></div>
+      <div class="acc-pct" id="acc-pct-white">—</div>
+    </div>
+    <div class="acc-row">
+      <div class="acc-label" style="color:#aaa;">Black</div>
+      <div class="acc-bar-wrap"><div class="acc-bar black-bar" id="acc-bar-black" style="width:0%"></div></div>
+      <div class="acc-pct" id="acc-pct-black">—</div>
+    </div>
+  </div>
+
+  <!-- Board + moves -->
+  <div class="results-grid">
+    <!-- Board -->
+    <div id="board-wrap">
+      <h3>Game Replay</h3>
+      <div id="board"></div>
+      <div class="board-controls">
+        <button class="btn btn-ghost" id="btn-start" title="Start">⏮</button>
+        <button class="btn btn-ghost" id="btn-prev"  title="Previous">←</button>
+        <div class="move-indicator" id="move-indicator">Start</div>
+        <button class="btn btn-ghost" id="btn-next"  title="Next">→</button>
+        <button class="btn btn-ghost" id="btn-end"   title="End">⏭</button>
+      </div>
+      <!-- Eval bar -->
+      <div class="eval-bar-wrap" id="eval-bar-section" style="display:none;">
+        <div class="eval-label">Black</div>
+        <div class="eval-track">
+          <div class="eval-fill" id="eval-fill" style="width:50%"></div>
+        </div>
+        <div class="eval-val" id="eval-val">0.0</div>
+        <div class="eval-label" style="text-align:left;">White</div>
+      </div>
+    </div>
+
+    <!-- Move list -->
+    <div id="move-list-wrap">
+      <h3>Move by Move</h3>
+      <div class="legend">
+        <div class="legend-item"><div class="dot best"></div> Best</div>
+        <div class="legend-item"><div class="dot excellent"></div> Excellent</div>
+        <div class="legend-item"><div class="dot good"></div> Good</div>
+        <div class="legend-item"><div class="dot inaccuracy"></div> Inaccuracy</div>
+        <div class="legend-item"><div class="dot mistake"></div> Mistake</div>
+        <div class="legend-item"><div class="dot blunder"></div> Blunder</div>
+      </div>
+      <div id="move-list"></div>
+    </div>
+  </div>
+
+  <!-- Analyse another -->
+  <div style="text-align:center;margin-top:40px;">
+    <button class="btn btn-ghost" id="reset-btn">↩ Analyse another game</button>
+  </div>
+</div>
+
+<footer>Boardflow — built with <a href="https://roboflow.com">Roboflow</a> computer vision &amp; Stockfish</footer>
+</main>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+let selectedFile = null;
+let gameData     = null;   // the API response
+let currentIdx   = -1;     // which half-move we're viewing (-1 = start)
+let board        = null;   // chessboard.js instance
+let chess        = null;   // chess.js instance
+
+// ── DOM refs ──────────────────────────────────────────────────────────────
+const dropZone     = document.getElementById('drop-zone');
+const fileInput    = document.getElementById('file-input');
+const fileNameEl   = document.getElementById('file-name');
+const analyzeBtn   = document.getElementById('analyze-btn');
+const progressSec  = document.getElementById('progress-section');
+const progressBar  = document.getElementById('progress-bar');
+const progressLbl  = document.getElementById('progress-label');
+const uploadError  = document.getElementById('upload-error');
+const heroSection  = document.getElementById('hero');
+const uploadSection= document.getElementById('upload-section');
+const resultSection= document.getElementById('results-section');
+
+// ── File handling ─────────────────────────────────────────────────────────
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', ()=> dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('video/')) setFile(f);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) setFile(e.target.files[0]);
+});
+
+function setFile(f) {
+  selectedFile = f;
+  fileNameEl.textContent = '✓ ' + f.name;
+  analyzeBtn.disabled = false;
+}
+
+// ── Analyse ───────────────────────────────────────────────────────────────
+analyzeBtn.addEventListener('click', async () => {
+  uploadError.style.display = 'none';
+  analyzeBtn.disabled = true;
+  progressSec.style.display = 'block';
+
+  const steps = [
+    [10, 'Extracting frames from video…'],
+    [35, 'Running Roboflow detection…'],
+    [65, 'Building board states…'],
+    [80, 'Detecting moves…'],
+    [92, 'Running Stockfish analysis…'],
+    [99, 'Finishing up…'],
+  ];
+
+  let stepIdx = 0;
+  const ticker = setInterval(() => {
+    if (stepIdx < steps.length) {
+      const [pct, lbl] = steps[stepIdx++];
+      progressBar.style.width = pct + '%';
+      progressLbl.textContent = lbl;
+    }
+  }, 2200);
+
+  try {
+    const form = new FormData();
+    form.append('video', selectedFile);
+
+    const res = await fetch('/api/analyze', { method: 'POST', body: form });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.detail || 'Analysis failed');
+    }
+
+    clearInterval(ticker);
+    progressBar.style.width = '100%';
+    progressLbl.textContent = 'Done!';
+    await new Promise(r => setTimeout(r, 500));
+
+    showResults(data);
+  } catch (err) {
+    clearInterval(ticker);
+    progressSec.style.display = 'none';
+    analyzeBtn.disabled = false;
+    uploadError.textContent = '⚠ ' + err.message;
+    uploadError.style.display = 'block';
+  }
+});
+
+// ── Render results ────────────────────────────────────────────────────────
+function showResults(data) {
+  gameData = data;
+
+  // Hide upload, show results
+  heroSection.style.display   = 'none';
+  uploadSection.style.display = 'none';
+  resultSection.style.display = 'block';
+
+  // Opening
+  document.getElementById('opening-pill').textContent = '♟ ' + (data.opening || 'Unknown Opening');
+
+  // Stats
+  document.getElementById('stat-white').textContent = data.white_accuracy != null ? data.white_accuracy + '%' : '—';
+  document.getElementById('stat-black').textContent = data.black_accuracy != null ? data.black_accuracy + '%' : '—';
+  document.getElementById('stat-moves').textContent = data.moves.length;
+
+  // Accuracy bars
+  setTimeout(() => {
+    const wa = data.white_accuracy || 0;
+    const ba = data.black_accuracy || 0;
+    document.getElementById('acc-bar-white').style.width = wa + '%';
+    document.getElementById('acc-bar-black').style.width = ba + '%';
+    document.getElementById('acc-pct-white').textContent = wa ? wa + '%' : '—';
+    document.getElementById('acc-pct-black').textContent = ba ? ba + '%' : '—';
+  }, 100);
+
+  // Error notice
+  if (data.error && !data.stockfish_available) {
+    const err = document.createElement('div');
+    err.className = 'error-banner';
+    err.textContent = '⚠ ' + data.error;
+    document.querySelector('.accuracy-section').before(err);
+  }
+
+  // Build move list
+  buildMoveList(data.moves);
+
+  // Init board
+  initBoard(data.moves);
+}
+
+function buildMoveList(moves) {
+  const list = document.getElementById('move-list');
+  list.innerHTML = '';
+
+  // Group into pairs
+  for (let i = 0; i < moves.length; i += 2) {
+    const row = document.createElement('div');
+    row.className = 'move-row';
+
+    const num = document.createElement('div');
+    num.className = 'move-num';
+    num.textContent = moves[i].move_number + '.';
+    row.appendChild(num);
+
+    [i, i+1].forEach(idx => {
+      if (idx >= moves.length) { row.appendChild(document.createElement('div')); return; }
+      const m = moves[idx];
+      const cell = document.createElement('div');
+      cell.className = 'move-cell';
+      cell.dataset.idx = idx;
+
+      const dot = document.createElement('div');
+      dot.className = 'dot ' + (m.classification || 'unknown');
+      cell.appendChild(dot);
+
+      const txt = document.createTextNode(m.san);
+      cell.appendChild(txt);
+
+      cell.addEventListener('click', () => navigateTo(idx));
+      row.appendChild(cell);
+    });
+
+    list.appendChild(row);
+  }
+}
+
+// ── Board navigation ──────────────────────────────────────────────────────
+function initBoard(moves) {
+  chess = new Chess();
+  board = Chessboard('board', {
+    position: 'start',
+    pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/img/chesspieces/wikipedia/{piece}.png',
+  });
+  currentIdx = -1;
+  updateBoardControls();
+
+  document.getElementById('btn-start').onclick = () => navigateTo(-1);
+  document.getElementById('btn-prev') .onclick = () => navigateTo(Math.max(-1, currentIdx - 1));
+  document.getElementById('btn-next') .onclick = () => navigateTo(Math.min(gameData.moves.length - 1, currentIdx + 1));
+  document.getElementById('btn-end')  .onclick = () => navigateTo(gameData.moves.length - 1);
+
+  // Keyboard nav
+  document.onkeydown = e => {
+    if (resultSection.style.display === 'none') return;
+    if (e.key === 'ArrowLeft')  navigateTo(Math.max(-1, currentIdx - 1));
+    if (e.key === 'ArrowRight') navigateTo(Math.min(gameData.moves.length - 1, currentIdx + 1));
+  };
+}
+
+function navigateTo(idx) {
+  if (!gameData) return;
+  currentIdx = idx;
+
+  // Rebuild board up to this index
+  chess = new Chess();
+  for (let i = 0; i <= idx; i++) {
+    chess.move(gameData.moves[i].san);
+  }
+  board.position(chess.fen(), false);
+
+  updateBoardControls();
+  highlightActiveMove(idx);
+  updateEvalBar(idx);
+}
+
+function updateBoardControls() {
+  const total = gameData ? gameData.moves.length : 0;
+  const ind = document.getElementById('move-indicator');
+  if (currentIdx < 0) {
+    ind.textContent = 'Start';
+  } else {
+    const m = gameData.moves[currentIdx];
+    ind.textContent = m.move_number + (m.color === 'white' ? '. ' : '… ') + m.san;
+  }
+}
+
+function highlightActiveMove(idx) {
+  document.querySelectorAll('.move-cell').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.idx) === idx);
+  });
+  // Scroll active move into view
+  const active = document.querySelector('.move-cell.active');
+  if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function updateEvalBar(idx) {
+  const evalSection = document.getElementById('eval-bar-section');
+  const evalFill    = document.getElementById('eval-fill');
+  const evalVal     = document.getElementById('eval-val');
+
+  if (idx < 0 || !gameData.moves[idx].eval_after) {
+    evalSection.style.display = 'none';
+    return;
+  }
+
+  const cp = gameData.moves[idx].eval_after;
+  evalSection.style.display = 'flex';
+
+  // Map cp to bar width: 0cp = 50%, +500 = 90%, -500 = 10%
+  const pct = Math.max(5, Math.min(95, 50 + cp / 500 * 40));
+  evalFill.style.width = pct + '%';
+
+  if (Math.abs(cp) >= 9000) {
+    evalVal.textContent = cp > 0 ? 'M' : '-M';
+  } else {
+    evalVal.textContent = (cp > 0 ? '+' : '') + (cp / 100).toFixed(1);
+  }
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────
+document.getElementById('reset-btn').addEventListener('click', () => {
+  selectedFile = null;
+  gameData     = null;
+  currentIdx   = -1;
+
+  fileNameEl.textContent = '';
+  fileInput.value = '';
+  analyzeBtn.disabled = true;
+  progressSec.style.display = 'none';
+  progressBar.style.width = '0%';
+  uploadError.style.display = 'none';
+
+  // Remove any injected error banners
+  document.querySelectorAll('.error-banner').forEach(el => el.remove());
+
+  heroSection.style.display   = '';
+  uploadSection.style.display = '';
+  resultSection.style.display = 'none';
+
+  document.onkeydown = null;
+});
+</script>
+</body>
+</html>
