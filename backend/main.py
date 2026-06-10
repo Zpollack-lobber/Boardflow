@@ -24,7 +24,7 @@ import chess
 
 # ── Roboflow config (baked in) ────────────────────────────────────────────────
 ROBOFLOW_API_KEY  = os.environ.get("ROBOFLOW_API_KEY",  "sc2UeMDMoHAn22SEJbHv")
-ROBOFLOW_MODEL_ID = os.environ.get("ROBOFLOW_MODEL_ID", "chess-pieces-mjzgj/1")
+ROBOFLOW_MODEL_ID = os.environ.get("ROBOFLOW_MODEL_ID", "chess.com-pieces/2")
 
 app = FastAPI(title="Boardflow", version="1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
