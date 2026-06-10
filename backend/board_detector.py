@@ -10,6 +10,7 @@ map each piece centre to one of the 64 squares (a1-h8).
 """
 
 import math
+import numpy as np
 from typing import Optional
 
 # ── Roboflow class labels → python-chess piece symbols ──────────────────────
@@ -65,15 +66,40 @@ def predictions_to_board(predictions: list[dict],
     for p in predictions:
         sym = _normalize(p.get("class", ""))
         if sym:
-            pieces.append({"sym": sym, "cx": p["x"], "cy": p["y"]})
+            pieces.append({
+                "sym":  sym,
+                "cx":   p["x"],
+                "cy":   p["y"],
+                "conf": p.get("confidence", 1.0),
+            })
+
+    if len(pieces) < 4:
+        return None
+
+    # ── Remove spatial outliers (Chess.com UI: clocks, move list, etc.) ────
+    # Use IQR filtering to discard detections far from the main piece cluster.
+    xs_arr = np.array([p["cx"] for p in pieces])
+    ys_arr = np.array([p["cy"] for p in pieces])
+
+    def _iqr_bounds(arr: np.ndarray, k: float = 1.5):
+        q1, q3 = np.percentile(arr, [25, 75])
+        iqr = q3 - q1
+        return q1 - k * iqr, q3 + k * iqr
+
+    x_lo, x_hi = _iqr_bounds(xs_arr)
+    y_lo, y_hi = _iqr_bounds(ys_arr)
+    pieces = [p for p in pieces
+              if x_lo <= p["cx"] <= x_hi and y_lo <= p["cy"] <= y_hi]
+
+    # Hard cap at 32 pieces — keep highest-confidence ones
+    if len(pieces) > 32:
+        pieces.sort(key=lambda p: p["conf"], reverse=True)
+        pieces = pieces[:32]
 
     if len(pieces) < 4:
         return None
 
     # ── Estimate board bounding box ──────────────────────────────────────────
-    # Strategy: use piece centres + a margin equal to half the typical cell size.
-    # This is an approximation; it works well when most squares are occupied
-    # (early/mid game) and degrades gracefully in the end-game.
     xs = [p["cx"] for p in pieces]
     ys = [p["cy"] for p in pieces]
 

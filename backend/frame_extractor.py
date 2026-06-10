@@ -26,49 +26,90 @@ class ExtractedFrame:
 
 def detect_board_region(frame: np.ndarray) -> Optional[tuple[int, int, int, int]]:
     """
-    Attempt to locate the chess board in a frame.
-    Returns (x, y, w, h) or None.
+    Locate the chess board in a Chess.com screen recording.
 
-    Approach: detect the largest near-square region that consists of
-    alternating light/dark squares — characteristic of a chess board.
-    Falls back to returning the full frame if detection fails.
+    Strategy: mask the frame for Chess.com's characteristic square colours
+    (multiple board themes supported), then find the largest square-ish blob.
+    Falls back to contour-based detection if colour matching yields nothing.
+    Returns (x, y, w, h) or None.
     """
     h, w = frame.shape[:2]
 
-    # Convert to HSV and look for chessboard-like colour clusters
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # ── Chess.com board colour palettes (BGR order) ─────────────────────────
+    # Each tuple: (light_lo, light_hi, dark_lo, dark_hi)
+    # Brown classic  (light ≈ #f0d9b5, dark ≈ #b58863)
+    # Green          (light ≈ #eeeed2, dark ≈ #769656)
+    # Blue           (light ≈ #dee3e6, dark ≈ #8ca2ad)
+    COLOR_SCHEMES = [
+        (np.array([165, 195, 220]), np.array([210, 230, 255]),   # brown light
+         np.array([ 75, 110, 155]), np.array([130, 165, 210])),  # brown dark
+        (np.array([185, 215, 215]), np.array([230, 250, 250]),   # green light
+         np.array([ 65, 120,  90]), np.array([120, 175, 140])),  # green dark
+        (np.array([190, 195, 195]), np.array([240, 240, 240]),   # blue light
+         np.array([100, 130, 100]), np.array([155, 180, 155])),  # blue dark
+        # Broad fallback
+        (np.array([150, 150, 150]), np.array([255, 255, 255]),
+         np.array([ 50,  50,  50]), np.array([160, 160, 200])),
+    ]
 
-    # Use adaptive thresholding to find the alternating-square pattern
-    thresh = cv2.adaptiveThreshold(
-        gray, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY, 11, 2
-    )
-
-    # Find contours
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    best = None
+    best_box   = None
     best_score = 0
+    morph_k    = np.ones((12, 12), np.uint8)
 
+    for ll, lh, dl, dh in COLOR_SCHEMES:
+        mask = cv2.bitwise_or(
+            cv2.inRange(frame, ll, lh),
+            cv2.inRange(frame, dl, dh),
+        )
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, morph_k)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,  morph_k)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < (min(h, w) * 0.15) ** 2:
+                continue
+            bx, by, bw, bh = cv2.boundingRect(cnt)
+            aspect = bw / bh if bh else 0
+            if not (0.75 < aspect < 1.33):
+                continue
+            score = area * (1 - abs(aspect - 1))
+            if score > best_score:
+                best_score = score
+                best_box   = (bx, by, bw, bh)
+
+    if best_box:
+        bx, by, bw, bh = best_box
+        # Force a square crop (take the smaller dimension, centred)
+        side = min(bw, bh)
+        bx   = bx + (bw - side) // 2
+        by   = by + (bh - side) // 2
+        return (bx, by, side, side)
+
+    # ── Fallback: largest near-square contour from adaptive threshold ────────
+    gray   = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    thresh = cv2.adaptiveThreshold(gray, 255,
+                                   cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY, 11, 2)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL,
+                                   cv2.CHAIN_APPROX_SIMPLE)
+    fb_best  = None
+    fb_score = 0
     for cnt in contours:
         area = cv2.contourArea(cnt)
         if area < (min(h, w) * 0.2) ** 2:
-            continue  # too small
-
-        x, y, cw, ch = cv2.boundingRect(cnt)
-        aspect = cw / ch if ch else 0
+            continue
+        bx, by, bw, bh = cv2.boundingRect(cnt)
+        aspect = bw / bh if bh else 0
         if not (0.7 < aspect < 1.4):
-            continue  # not square-ish
+            continue
+        score = area * (1 - abs(aspect - 1))
+        if score > fb_score:
+            fb_score = score
+            fb_best  = (bx, by, bw, bh)
 
-        # Prefer larger, more square regions
-        squareness = 1 - abs(aspect - 1)
-        score = area * squareness
-        if score > best_score:
-            best_score = score
-            best = (x, y, cw, ch)
-
-    return best
+    return fb_best
 
 
 def frames_are_different(a: np.ndarray, b: np.ndarray, threshold: float = 0.02) -> bool:
@@ -89,15 +130,26 @@ def extract_key_frames(
     """
     Extract frames where the board state has changed.
 
+    Automatically adjusts the sampling rate for long videos so that a
+    3-minute game is handled the same as a 30-second clip — no manual
+    speed-up required from the user.
+
     Returns a list of ExtractedFrame objects.
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError(f"Cannot open video: {video_path}")
 
-    video_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    video_fps    = cap.get(cv2.CAP_PROP_FPS) or 30
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    step = max(1, int(video_fps / sample_fps))
+    duration_sec = total_frames / video_fps
+
+    # Auto-scale: target at most max_frames samples across the whole video.
+    # For a 3-minute game this means ~1 sample every ~1.5 s by default,
+    # but for a 10-minute game it automatically stretches to 1 per 5 s, etc.
+    target_samples   = max_frames
+    auto_sample_fps  = min(sample_fps, target_samples / max(duration_sec, 1))
+    step = max(1, int(video_fps / auto_sample_fps))
 
     board_region: Optional[tuple] = None
     prev_board: Optional[np.ndarray] = None
