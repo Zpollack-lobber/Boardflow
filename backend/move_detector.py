@@ -70,6 +70,23 @@ def boards_to_move(prev: dict[str, str],
                     if move:
                         return move
 
+    # ── Strategy 5: best-match fallback over all legal moves ─────────────────
+    # Only accept if 75%+ of detected squares match — high bar to avoid
+    # accepting noise as a move and corrupting the running board state.
+    best_move  = None
+    best_score = -1
+    for move in chess_board.legal_moves:
+        tmp = chess_board.copy()
+        tmp.push(move)
+        score = _board_match_score(curr_clean, tmp)
+        if score > best_score:
+            best_score = score
+            best_move  = move
+
+    min_threshold = max(6, len(curr_clean) * 0.75)
+    if best_score >= min_threshold:
+        return best_move
+
     return None
 
 
