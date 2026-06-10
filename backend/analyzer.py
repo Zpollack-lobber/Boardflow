@@ -25,9 +25,11 @@ from dataclasses import dataclass, field
 # ── Stockfish search paths ───────────────────────────────────────────────────
 STOCKFISH_PATHS = [
     "stockfish",
-    "/usr/local/bin/stockfish",
-    "/opt/homebrew/bin/stockfish",
+    "/usr/games/stockfish",        # Debian/Ubuntu apt install location
     "/usr/bin/stockfish",
+    "/usr/local/bin/stockfish",
+    "/opt/homebrew/bin/stockfish", # Homebrew Apple Silicon
+    "/usr/local/opt/stockfish/bin/stockfish",
     "C:/Users/Public/stockfish/stockfish.exe",
 ]
 
