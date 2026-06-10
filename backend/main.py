@@ -67,10 +67,16 @@ async def analyze_video(video: UploadFile = File(...)):
         except ImportError:
             raise HTTPException(status_code=500, detail="Run: pip install inference-sdk")
 
+        print(f"[boardflow] extracted {len(frames)} frames, model={ROBOFLOW_MODEL_ID}")
+
         board_states = []
         for frame in frames:
             try:
                 result = client.infer(frame.image_np, model_id=ROBOFLOW_MODEL_ID)
+                raw_preds = result.get("predictions", [])
+                if frame.index == 0:
+                    classes_seen = [p["class"] for p in raw_preds]
+                    print(f"[boardflow] frame 0 predictions: {len(raw_preds)} pieces, classes={classes_seen[:6]}")
                 preds = [
                     {
                         "class":      p["class"],
@@ -109,6 +115,8 @@ async def analyze_video(video: UploadFile = File(...)):
                 moves_san.append(chess_board.san(move))
                 chess_board.push(move)
             prev_state = state
+
+        print(f"[boardflow] board_states={len([s for s in board_states if s is not None])} valid, moves={moves_san[:5]}")
 
         if not moves_san:
             raise HTTPException(
