@@ -52,6 +52,20 @@ def _normalize(label: str) -> str:
     return PIECE_SYMBOL.get(label) or PIECE_SYMBOL.get(label.replace("-", " ").title())
 
 
+def _get_board_bbox(predictions: list[dict]) -> Optional[tuple[float, float, float, float]]:
+    """
+    If the model returned a 'board' class detection, use its bounding box
+    to filter out pieces that fall outside the actual board region.
+    Returns (x0, y0, x1, y1) or None.
+    """
+    for p in predictions:
+        if p.get("class", "").lower() == "board":
+            cx, cy = p["x"], p["y"]
+            hw, hh = p["width"] / 2, p["height"] / 2
+            return (cx - hw, cy - hh, cx + hw, cy + hh)
+    return None
+
+
 def predictions_to_board(predictions: list[dict],
                           white_at_bottom: bool = True,
                           image_width: int = 0,
@@ -62,16 +76,30 @@ def predictions_to_board(predictions: list[dict],
     Returns  { square: piece_symbol }  e.g. {"e1": "K", "d1": "Q", ...}
     Returns None if fewer than 4 pieces are detected (unreliable frame).
     """
+    # Use the 'board' detection bbox to restrict pieces to the actual board area
+    board_bbox = _get_board_bbox(predictions)
+
     pieces = []
     for p in predictions:
         sym = _normalize(p.get("class", ""))
-        if sym:
-            pieces.append({
-                "sym":  sym,
-                "cx":   p["x"],
-                "cy":   p["y"],
-                "conf": p.get("confidence", 1.0),
-            })
+        if not sym:
+            continue
+        cx, cy = p["x"], p["y"]
+        # If we know where the board is, discard pieces outside it
+        if board_bbox:
+            x0, y0, x1, y1 = board_bbox
+            # Allow a small margin (10% of board size) for edge pieces
+            margin_x = (x1 - x0) * 0.10
+            margin_y = (y1 - y0) * 0.10
+            if not (x0 - margin_x <= cx <= x1 + margin_x and
+                    y0 - margin_y <= cy <= y1 + margin_y):
+                continue
+        pieces.append({
+            "sym":  sym,
+            "cx":   cx,
+            "cy":   cy,
+            "conf": p.get("confidence", 1.0),
+        })
 
     if len(pieces) < 4:
         return None
