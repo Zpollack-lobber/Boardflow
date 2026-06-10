@@ -123,9 +123,9 @@ def frames_are_different(a: np.ndarray, b: np.ndarray, threshold: float = 0.02) 
 
 def extract_key_frames(
     video_path: str,
-    sample_fps: float = 1.5,
+    sample_fps: float = 3.0,
     change_threshold: float = 0.02,
-    max_frames: int = 120,
+    max_frames: int = 200,
 ) -> list[ExtractedFrame]:
     """
     Extract frames where the board state has changed.
