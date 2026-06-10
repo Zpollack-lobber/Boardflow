@@ -33,6 +33,10 @@ def boards_to_move(prev: dict[str, str],
     disappeared = {sq for sq in all_squares if prev_clean.get(sq) and not curr_clean.get(sq)}
     appeared    = {sq for sq in all_squares if not prev_clean.get(sq) and curr_clean.get(sq)}
 
+    # ── Early exit: boards are identical — no move happened ─────────────────
+    if len(disappeared) == 0 and len(appeared) == 0:
+        return None
+
     # ── Strategy 1: clean single move (1 disappeared, 1 appeared) ───────────
     if len(disappeared) == 1 and len(appeared) == 1:
         move = _try_move(list(disappeared)[0], list(appeared)[0], chess_board)
@@ -65,23 +69,6 @@ def boards_to_move(prev: dict[str, str],
                     move = _try_move(from_sq_str, to_sq_str, chess_board)
                     if move:
                         return move
-
-    # ── Strategy 5: best-match fallback over all legal moves ─────────────────
-    # Score each legal move by how well the resulting position matches curr.
-    # Use a relative threshold (50 %) so noise doesn't disqualify valid moves.
-    best_move  = None
-    best_score = -1
-    for move in chess_board.legal_moves:
-        tmp = chess_board.copy()
-        tmp.push(move)
-        score = _board_match_score(curr_clean, tmp)
-        if score > best_score:
-            best_score = score
-            best_move  = move
-
-    min_threshold = max(4, len(curr_clean) * 0.50)
-    if best_score >= min_threshold:
-        return best_move
 
     return None
 

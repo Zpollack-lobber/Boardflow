@@ -53,7 +53,7 @@ async def analyze_video(video: UploadFile = File(...)):
 
     try:
         # 1. Extract key frames
-        frames = extract_key_frames(tmp_path, sample_fps=3.0, max_frames=200)
+        frames = extract_key_frames(tmp_path, sample_fps=2.0, max_frames=200)
         if not frames:
             raise HTTPException(status_code=422, detail="Could not extract frames from video.")
 
