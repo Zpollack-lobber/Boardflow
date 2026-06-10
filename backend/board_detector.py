@@ -20,7 +20,21 @@ PIECE_SYMBOL: dict[str, str] = {
     "white-bishop": "B",  "white-knight": "N",  "white-pawn":   "P",
     "black-king":   "k",  "black-queen":  "q",  "black-rook":   "r",
     "black-bishop": "b",  "black-knight": "n",  "black-pawn":   "p",
-    # generic (no-color) fallbacks — model sometimes labels these without prefix
+    # chess.com-pieces/2 short codes  (bp=black pawn, wK=white king, etc.)
+    "bp": "p",  "bр": "p",  "wp": "P",
+    "bk": "k",  "wk": "K",
+    "bq": "q",  "wq": "Q",
+    "br": "r",  "wr": "R",
+    "bb": "b",  "wb": "B",
+    "bn": "n",  "wn": "N",
+    # uppercase variants
+    "BP": "p",  "WP": "P",
+    "BK": "k",  "WK": "K",
+    "BQ": "q",  "WQ": "Q",
+    "BR": "r",  "WR": "R",
+    "BB": "b",  "WB": "B",
+    "BN": "n",  "WN": "N",
+    # generic (no-color) fallbacks
     "king":   "K",  "queen":  "Q",  "rook":   "R",
     "bishop": "B",  "knight": "N",  "pawn":   "P",
     # title-cased variants
