@@ -63,7 +63,7 @@ async def analyze_video(video: UploadFile = File(...)):
         if not frames:
             raise HTTPException(status_code=422, detail="Could not extract frames from video.")
 
-       from inference_sdk import InferenceHTTPClient
+        from inference_sdk import InferenceHTTPClient
         client = InferenceHTTPClient(api_url="https://serverless.roboflow.com", api_key=ROBOFLOW_API_KEY)
         print(f"[boardflow] {len(frames)} frames, workflow=custom-workflow")
 
