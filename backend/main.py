@@ -79,12 +79,26 @@ def _fen_to_board_dict(fen_placement: str) -> dict[str, str] | None:
         return None
 
 
-def _infer_with_retry(client, image_np, prompt, max_retries=3):
+def _infer_with_retry(image_np, prompt, max_retries=3):
+    """Call Qwen VL via direct HTTP API."""
+    import requests, cv2, base64
+    _, buf = cv2.imencode(".jpg", image_np)
+    b64 = base64.b64encode(buf).decode("utf-8")
+
     last_exc = None
     for attempt in range(max_retries):
         try:
-            result = client.infer(image_np, model_id=QWEN_MODEL_ID, prompt=prompt)
-            return result
+            resp = requests.post(
+                f"https://serverless.roboflow.com/{QWEN_MODEL_ID}",
+                params={"api_key": ROBOFLOW_API_KEY},
+                json={
+                    "image": {"type": "base64", "value": b64},
+                    "prompt": prompt,
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp.json()
         except Exception as e:
             last_exc = e
             err_str = str(e)
@@ -108,15 +122,13 @@ async def analyze_video(video: UploadFile = File(...)):
         if not frames:
             raise HTTPException(status_code=422, detail="Could not extract frames from video.")
 
-        from inference_sdk import InferenceHTTPClient
-        client = InferenceHTTPClient(api_url="https://serverless.roboflow.com", api_key=ROBOFLOW_API_KEY)
         print(f"[boardflow] {len(frames)} frames → Qwen VL")
 
         # ── Get FEN for each frame ────────────────────────────────────────────
         fen_states = []
         for frame in frames:
             try:
-                raw = _infer_with_retry(client, frame.image_np, FEN_PROMPT)
+                raw = _infer_with_retry(frame.image_np, FEN_PROMPT)
                 if frame.index == 0:
                     print(f"[boardflow] frame 0 raw response: {repr(raw)[:300]}")
                 fen = _extract_fen(raw)
