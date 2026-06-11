@@ -106,35 +106,37 @@ def _run_webrtc_session(tmp_path: str) -> list[dict]:
         config=config
     )
 
-    frame_data = []
+    frame_data  = []
     frame_count = [0]
+    last_count  = [None]
 
     @session.on_data()
     def on_data(data: dict, metadata: VideoMetadata):
-        fid = metadata.frame_id
-        msg        = data.get("vision_events_message")
-        err        = data.get("vision_events_error_status")
-        preds      = data.get("predictions")
+        fid        = metadata.frame_id
+        preds      = data.get("predictions") or []
         ball_count = data.get("ball_count")
+        err        = data.get("vision_events_error_status")
 
         frame_count[0] += 1
 
-        # Log first 5 frames always, plus every frame with a message or ball_count change
-        if frame_count[0] <= 5 or msg:
-            safe_data = {k: v for k, v in data.items() if k not in ("output_image",)}
-            print(f"[boardflow] frame {fid} ball_count={ball_count} msg={repr(msg)} err={repr(err)}")
-            print(f"[boardflow] frame {fid} FULL: {json.dumps(safe_data, default=str)[:1200]}")
+        # Only log when ball_count changes (a move was detected) or first frame
+        count_changed = (ball_count != last_count[0])
+        if frame_count[0] == 1:
+            print(f"[boardflow] first frame: ball_count={ball_count} preds={len(preds)} err={repr(err)}")
+        if count_changed and ball_count is not None:
+            print(f"[boardflow] MOVE DETECTED frame {fid}: ball_count {last_count[0]} → {ball_count}  preds={len(preds)}")
+            last_count[0] = ball_count
 
         frame_data.append({
             "frame_id":    fid,
-            "message":     msg,
-            "error":       err,
+            "ball_count":  ball_count,
             "predictions": preds,
+            "move_event":  count_changed and ball_count is not None,
         })
 
     session.run()
-    event_frames = sum(1 for f in frame_data if f["message"])
-    print(f"[boardflow] WebRTC done: {frame_count[0]} frames, {event_frames} with events")
+    move_frames = sum(1 for f in frame_data if f["move_event"])
+    print(f"[boardflow] WebRTC done: {frame_count[0]} frames, {move_frames} move events, final ball_count={last_count[0]}")
     return frame_data
 
 
@@ -154,53 +156,52 @@ async def analyze_video(video: UploadFile = File(...)):
         if not frame_data:
             raise HTTPException(status_code=422, detail="No frames processed from video.")
 
-        # ── Extract and validate moves from vision_events_message ─────────────
+        # ── Extract moves: diff board states at ball_count change frames ────────
+        from board_detector import predictions_to_board
+        from move_detector  import boards_to_move
+
         chess_board = init_chess_board()
         moves_san   = []
+        prev_board  = None
 
         for fd in frame_data:
-            msg = fd["message"]
-            if not msg:
+            preds = fd["predictions"]
+            if not preds:
                 continue
 
-            uci = _parse_uci_from_message(msg)
-            if not uci:
-                print(f"[boardflow] unparseable message: {repr(msg)}")
+            # Parse board state from this frame's predictions
+            curr_board = predictions_to_board(
+                preds,
+                white_at_bottom=True,
+                image_width=0,
+                image_height=0,
+            )
+            if curr_board is None:
                 continue
 
-            try:
-                move = chess.Move.from_uci(uci)
-            except Exception as e:
-                print(f"[boardflow] bad UCI '{uci}': {e}")
-                continue
-
-            if move not in chess_board.legal_moves:
-                # Try queen promotion (pawn reaching last rank)
-                promo = chess.Move.from_uci(uci + "q") if len(uci) == 4 else None
-                if promo and promo in chess_board.legal_moves:
-                    move = promo
+            # Only attempt move detection on frames where ball_count changed
+            if fd["move_event"] and prev_board is not None:
+                move = boards_to_move(prev_board, curr_board, chess_board)
+                if move and move in chess_board.legal_moves:
+                    san = chess_board.san(move)
+                    if not moves_san or san != moves_san[-1]:
+                        moves_san.append(san)
+                        chess_board.push(move)
+                        print(f"[boardflow] move {len(moves_san)}: {san}")
                 else:
-                    print(f"[boardflow] '{uci}' illegal at move {len(moves_san)+1} "
-                          f"(fen: {chess_board.fen()[:40]})")
-                    continue
+                    print(f"[boardflow] move_event but no legal move found at frame {fd['frame_id']}")
 
-            san = chess_board.san(move)
-            if moves_san and san == moves_san[-1]:
-                continue   # deduplicate consecutive identical events
-
-            moves_san.append(san)
-            chess_board.push(move)
-            print(f"[boardflow] move {len(moves_san)}: {san}  (msg={repr(msg)})")
+            prev_board = curr_board
 
         print(f"[boardflow] total detected: {len(moves_san)} moves → {moves_san}")
 
         if not moves_san:
+            move_events = sum(1 for f in frame_data if f["move_event"])
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"No moves detected. Processed {len(frame_data)} frames; "
-                    f"{sum(1 for f in frame_data if f['message'])} had vision events. "
-                    "Check Railway logs for raw message format."
+                    f"No moves detected. Processed {len(frame_data)} frames, "
+                    f"{move_events} ball_count change events. Check Railway logs."
                 ),
             )
 
