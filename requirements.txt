@@ -4,4 +4,4 @@ python-multipart>=0.0.9
 opencv-python-headless>=4.9.0
 numpy>=1.26.0
 python-chess>=1.999
-inference-sdk>=0.18.0
+inference-sdk[webrtc]>=0.18.0
