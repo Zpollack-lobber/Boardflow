@@ -48,19 +48,10 @@ async def analyze_video(video: UploadFile = File(...)):
         board_states = []
         for frame in frames:
             try:
-                result = client.run_workflow(
-                    workspace_name="zachs-workspace-cnn1l",
-                    workflow_id="soccer-ball-video-detector-1781110679341",
-                    images={"image": frame.image_np},
-                    use_cache=True,
-                )
+                raw_preds = client.infer(frame.image_np, model_id=ROBOFLOW_MODEL_ID).get("predictions", [])
                 if frame.index == 0:
-                    print(f"[boardflow] frame 0 raw workflow result: {str(result)[:600]}")
-                # result is typically a list with one dict per image
-                frame_result = result[0] if isinstance(result, list) else result
-                raw_preds = frame_result.get("predictions") or []
-                if isinstance(raw_preds, dict):
-                    raw_preds = list(raw_preds.values())
+                    classes = [p["class"] for p in raw_preds]
+                    print(f"[boardflow] frame 0: {len(raw_preds)} pieces, classes={classes[:6]}")
                 h_px, w_px = frame.image_np.shape[:2]
                 board = predictions_to_board(raw_preds, white_at_bottom=True, image_width=w_px, image_height=h_px)
                 board_states.append(board)
