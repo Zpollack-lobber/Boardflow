@@ -7,6 +7,7 @@ Then open:  http://localhost:8000
 
 import os
 import sys
+import time
 import tempfile
 from pathlib import Path
 
@@ -40,12 +41,32 @@ async def serve_frontend():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
+def _infer_with_retry(client, image_np, model_id: str, max_retries: int = 3):
+    """
+    Run Roboflow inference with exponential backoff retry.
+    Handles Cloudflare 524/520 timeouts and transient API errors.
+    Returns predictions list or raises on total failure.
+    """
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            result = client.infer(image_np, model_id=model_id)
+            return result.get("predictions", [])
+        except Exception as e:
+            last_exc = e
+            err_str = str(e)
+            if "524" in err_str or "520" in err_str or "timeout" in err_str.lower() or "connection" in err_str.lower():
+                wait = 2 ** attempt          # 1 s, 2 s, 4 s
+                print(f"[boardflow] inference attempt {attempt + 1}/{max_retries} failed "
+                      f"(retrying in {wait}s): {err_str[:120]}")
+                time.sleep(wait)
+            else:
+                raise
+    raise last_exc
+
+
 @app.post("/api/analyze")
 async def analyze_video(video: UploadFile = File(...)):
-    """
-    Accepts a chess screen-recording, runs Roboflow + Stockfish,
-    returns a full game analysis JSON.
-    """
     suffix = Path(video.filename).suffix if video.filename else ".mp4"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(await video.read())
@@ -69,14 +90,23 @@ async def analyze_video(video: UploadFile = File(...)):
 
         print(f"[boardflow] extracted {len(frames)} frames, model={ROBOFLOW_MODEL_ID}")
 
+        inference_cache: dict[int, object] = {}
+        failed_frames: list[int] = []
         board_states = []
+
         for frame in frames:
+            if frame.index in inference_cache:
+                board_states.append(inference_cache[frame.index])
+                continue
+
             try:
-                result = client.infer(frame.image_np, model_id=ROBOFLOW_MODEL_ID)
-                raw_preds = result.get("predictions", [])
+                raw_preds = _infer_with_retry(client, frame.image_np, ROBOFLOW_MODEL_ID)
+
                 if frame.index == 0:
                     classes_seen = [p["class"] for p in raw_preds]
-                    print(f"[boardflow] frame 0 predictions: {len(raw_preds)} pieces, classes={classes_seen[:6]}")
+                    print(f"[boardflow] frame 0 predictions: {len(raw_preds)} pieces, "
+                          f"classes={classes_seen[:6]}")
+
                 preds = [
                     {
                         "class":      p["class"],
@@ -94,29 +124,46 @@ async def analyze_video(video: UploadFile = File(...)):
                     image_width=frame.image_np.shape[1],
                     image_height=frame.image_np.shape[0],
                 )
+                inference_cache[frame.index] = board
                 board_states.append(board)
+
             except Exception as e:
-                print(f"[inference] frame error: {e}")
+                print(f"[boardflow] frame {frame.index} failed after all retries: {e}")
+                failed_frames.append(frame.index)
+                inference_cache[frame.index] = None
                 board_states.append(None)
 
-        # 3. Detect moves from board-state diffs
-        chess_board = init_chess_board()
-        moves_san = []
-        prev_state = None
+        if failed_frames:
+            print(f"[boardflow] {len(failed_frames)} frames failed inference: {failed_frames}")
 
-        for state in board_states:
+        # 3. Detect moves — bridge gaps from failed frames
+        chess_board = init_chess_board()
+        moves_san   = []
+        prev_state  = None
+        prev_idx    = -1
+
+        for idx, state in enumerate(board_states):
             if state is None:
                 continue
             if prev_state is None:
                 prev_state = state
+                prev_idx   = idx
                 continue
+
+            gap = idx - prev_idx
             move = boards_to_move(prev_state, state, chess_board)
             if move and move in chess_board.legal_moves:
                 moves_san.append(chess_board.san(move))
                 chess_board.push(move)
-            prev_state = state
+                if gap > 1:
+                    print(f"[boardflow] move {moves_san[-1]} bridged {gap}-frame gap "
+                          f"(frames {prev_idx}→{idx})")
 
-        print(f"[boardflow] board_states={len([s for s in board_states if s is not None])} valid, moves={moves_san[:5]}")
+            prev_state = state
+            prev_idx   = idx
+
+        print(f"[boardflow] board_states={len([s for s in board_states if s is not None])} valid, "
+              f"moves={moves_san[:5]}")
 
         if not moves_san:
             raise HTTPException(
