@@ -3,533 +3,472 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Boardflow — Instant Chess Analysis</title>
+  <title>Boardflow</title>
 
-  <!-- chess.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
-  <!-- chessboard.js -->
   <link  rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
   <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
-  <!-- jQuery (required by chessboard.js) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 
   <style>
-    /* ── Reset & base ─────────────────────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:         #0f1117;
-      --surface:    #1a1d27;
-      --surface2:   #222635;
-      --border:     #2e3347;
-      --accent:     #7c6af7;
-      --accent2:    #5e4fd6;
-      --text:       #e8eaf0;
-      --text-muted: #6b7394;
-      --green:      #4caf73;
-      --yellow:     #f0c040;
-      --orange:     #f07840;
-      --red:        #e04040;
-      --blue:       #4a9eff;
+      --sidebar-bg:    #0f0e1a;
+      --sidebar-hover: rgba(255,255,255,0.07);
+      --sidebar-active:rgba(124,58,237,0.25);
+      --main-bg:       #f4f3ff;
+      --card-bg:       #ffffff;
+      --card-border:   #e8e5f4;
+      --accent:        #7c3aed;
+      --accent-light:  #ede9fe;
+      --text:          #1a1833;
+      --text-muted:    #6b6b8a;
+      --green:         #059669;
+      --yellow:        #d97706;
+      --orange:        #ea580c;
+      --red:           #dc2626;
+      --blue:          #2563eb;
     }
 
     body {
-      background: var(--bg);
+      display: flex;
+      min-height: 100vh;
+      background: var(--main-bg);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       font-size: 15px;
       line-height: 1.6;
-      min-height: 100vh;
     }
 
-    a { color: var(--accent); text-decoration: none; }
-
-    /* ── Nav ──────────────────────────────────────────────────────────── */
-    nav {
+    .sidebar {
+      width: 200px;
+      min-height: 100vh;
+      background: var(--sidebar-bg);
       display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 14px 32px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-      position: sticky;
-      top: 0;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
       z-index: 100;
     }
-    .logo {
+
+    .sidebar-logo {
+      padding: 20px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 18px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+    .sidebar-logo .acc { color: var(--accent); }
+
+    .sidebar-nav { flex: 1; padding: 10px 8px; }
+
+    .nav-item {
       display: flex;
       align-items: center;
       gap: 10px;
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      color: rgba(255,255,255,0.6);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      margin-bottom: 2px;
+      user-select: none;
     }
-    .logo-icon { font-size: 24px; }
-    .logo span { color: var(--accent); }
-    .badge {
-      background: var(--accent);
-      color: #fff;
+    .nav-item:hover  { background: var(--sidebar-hover); color: #fff; }
+    .nav-item.active { background: var(--sidebar-active); color: #fff; }
+    .nav-icon { font-size: 15px; }
+
+    .sidebar-footer {
+      padding: 16px;
+      border-top: 1px solid rgba(255,255,255,0.07);
+    }
+    .powered-box {
+      background: rgba(124,58,237,0.15);
+      border: 1px solid rgba(124,58,237,0.25);
+      border-radius: 10px;
+      padding: 10px 12px;
       font-size: 11px;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 20px;
-      letter-spacing: 0.3px;
+      color: rgba(255,255,255,0.5);
+      line-height: 1.5;
     }
-    .powered-by {
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-    .powered-by strong { color: var(--text); }
+    .powered-box strong { color: rgba(255,255,255,0.85); }
 
-    /* ── Main layout ──────────────────────────────────────────────────── */
-    main {
-      max-width: 1200px;
+    .main {
+      margin-left: 200px;
+      flex: 1;
+      background: linear-gradient(135deg, #eeeaff 0%, #f4f3ff 45%, #fafafe 100%);
+      min-height: 100vh;
+    }
+
+    .inner {
+      max-width: 1100px;
       margin: 0 auto;
-      padding: 40px 24px;
+      padding: 48px 32px 64px;
     }
 
-    /* ── Hero section ─────────────────────────────────────────────────── */
-    #hero {
-      text-align: center;
-      padding: 60px 20px 40px;
+    #hero { text-align: center; padding: 36px 0 48px; }
+
+    .hero-chip {
+      display: inline-block;
+      background: var(--accent-light);
+      border: 1px solid rgba(124,58,237,0.2);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      padding: 4px 14px;
+      border-radius: 20px;
+      margin-bottom: 20px;
     }
+
     #hero h1 {
-      font-size: 52px;
+      font-size: 48px;
       font-weight: 800;
       letter-spacing: -2px;
       line-height: 1.1;
+      color: var(--text);
       margin-bottom: 16px;
     }
-    #hero h1 span { color: var(--accent); }
-    #hero p {
-      font-size: 18px;
-      color: var(--text-muted);
-      max-width: 520px;
-      margin: 0 auto 36px;
-    }
+    #hero h1 .acc { color: var(--accent); }
 
-    /* ── Upload card ──────────────────────────────────────────────────── */
-    #upload-section {
-      max-width: 600px;
+    #hero p {
+      font-size: 17px;
+      color: var(--text-muted);
+      max-width: 460px;
       margin: 0 auto;
     }
+
     .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
       border-radius: 16px;
       padding: 28px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04), 0 6px 24px rgba(124,58,237,0.06);
     }
-    .card h3 {
-      font-size: 14px;
-      font-weight: 600;
+    .card-label {
+      font-size: 11px;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.8px;
       color: var(--text-muted);
       margin-bottom: 16px;
     }
 
-    /* Drop zone */
+    #upload-section { max-width: 560px; margin: 0 auto; }
+
     #drop-zone {
-      border: 2px dashed var(--border);
+      border: 2px dashed #d4cff5;
       border-radius: 12px;
-      padding: 48px 24px;
+      padding: 44px 24px;
       text-align: center;
       cursor: pointer;
+      background: #faf9ff;
       transition: border-color 0.2s, background 0.2s;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
     #drop-zone:hover, #drop-zone.dragover {
       border-color: var(--accent);
-      background: rgba(124,106,247,0.06);
+      background: var(--accent-light);
     }
-    #drop-zone .drop-icon { font-size: 48px; margin-bottom: 12px; }
-    #drop-zone p { color: var(--text-muted); font-size: 15px; }
-    #drop-zone p strong { color: var(--text); }
-    #drop-zone small { font-size: 12px; color: var(--text-muted); }
+    .drop-icon  { font-size: 40px; margin-bottom: 12px; }
+    .drop-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .drop-sub   { font-size: 13px; color: var(--text-muted); margin-bottom: 4px; }
+    .drop-hint  { font-size: 12px; color: #b0aad0; }
+
     #file-input { display: none; }
-    #file-name {
-      font-size: 13px;
-      color: var(--green);
-      margin-top: 8px;
-      font-weight: 500;
-    }
 
-    /* Config fields */
-    .field-group { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
-    .field label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.6px;
-      color: var(--text-muted);
-      margin-bottom: 5px;
-    }
-    .field input, .field select {
-      width: 100%;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 10px 12px;
-      color: var(--text);
-      font-size: 14px;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-    .field input:focus, .field select:focus { border-color: var(--accent); }
-    .field input[type="password"] { letter-spacing: 2px; }
-    .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-
-    /* Buttons */
-    .btn {
-      display: inline-flex;
+    #file-selected {
+      display: none;
       align-items: center;
-      justify-content: center;
-      gap: 8px;
-      padding: 12px 24px;
+      gap: 12px;
+      background: var(--accent-light);
+      border: 1px solid rgba(124,58,237,0.2);
       border-radius: 10px;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+    }
+    .file-icon-badge { font-size: 22px; }
+    .file-meta { flex: 1; }
+    .file-meta .fname { font-size: 14px; font-weight: 600; color: var(--text); }
+    .file-meta .fsize { font-size: 12px; color: var(--text-muted); }
+
+    .btn-clear {
+      background: none;
       border: none;
-      transition: opacity 0.2s, transform 0.1s;
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 17px;
+      line-height: 1;
+      padding: 4px 6px;
+      border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .btn-clear:hover { color: var(--red); background: rgba(220,38,38,0.08); }
+
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      gap: 8px; border: none; cursor: pointer;
+      border-radius: 10px; font-weight: 600;
+      transition: all 0.15s;
     }
     .btn:active { transform: scale(0.98); }
-    .btn-primary {
-      background: var(--accent);
-      color: #fff;
-      width: 100%;
-      font-size: 16px;
-      padding: 14px;
-    }
-    .btn-primary:hover { opacity: 0.9; }
-    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-ghost {
-      background: var(--surface2);
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
 
-    /* Progress */
-    #progress-section {
-      display: none;
-      margin-top: 20px;
+    .btn-primary {
+      background: var(--accent); color: #fff;
+      width: 100%; padding: 13px; font-size: 15px;
     }
-    .progress-bar-wrap {
-      background: var(--surface2);
-      border-radius: 99px;
-      height: 6px;
-      overflow: hidden;
-      margin-bottom: 8px;
+    .btn-primary:hover { background: #6d28d9; }
+    .btn-primary:disabled { opacity: 0.38; cursor: not-allowed; transform: none; }
+
+    .btn-outline {
+      background: #fff; color: var(--text);
+      border: 1px solid var(--card-border);
+      padding: 9px 18px; font-size: 14px;
     }
-    .progress-bar {
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+    #progress-section { display: none; margin-top: 16px; }
+    .progress-track {
+      background: #ede9fe; border-radius: 99px;
+      height: 6px; overflow: hidden; margin-bottom: 8px;
+    }
+    .progress-fill {
       height: 100%;
-      background: linear-gradient(90deg, var(--accent), var(--blue));
-      border-radius: 99px;
-      transition: width 0.4s ease;
-      width: 0%;
+      background: linear-gradient(90deg, var(--accent), #a78bfa);
+      border-radius: 99px; transition: width 0.4s ease; width: 0%;
     }
     #progress-label { font-size: 13px; color: var(--text-muted); }
 
-    /* ── Results section ──────────────────────────────────────────────── */
+    .error-banner {
+      background: #fef2f2; border: 1px solid #fecaca;
+      border-radius: 8px; padding: 12px 16px;
+      font-size: 13px; color: var(--red); margin-top: 12px;
+    }
+
     #results-section { display: none; }
 
-    .results-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-      align-items: start;
-    }
-    @media (max-width: 800px) {
-      .results-grid { grid-template-columns: 1fr; }
+    .results-topbar {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 28px;
     }
 
-    /* Stats row */
+    .opening-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--accent-light);
+      border: 1px solid rgba(124,58,237,0.2);
+      color: var(--accent);
+      padding: 6px 16px; border-radius: 99px;
+      font-size: 13px; font-weight: 600;
+    }
+
     .stats-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-      margin-bottom: 24px;
+      display: grid; grid-template-columns: repeat(3,1fr);
+      gap: 16px; margin-bottom: 20px;
     }
     .stat-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      text-align: center;
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 12px; padding: 20px; text-align: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
     .stat-card .stat-label {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--text-muted);
-      margin-bottom: 6px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 8px;
     }
     .stat-card .stat-value {
-      font-size: 32px;
-      font-weight: 800;
-      letter-spacing: -1px;
-      color: var(--accent);
+      font-size: 32px; font-weight: 800;
+      letter-spacing: -1px; color: var(--accent);
     }
     .stat-card .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
-    /* Accuracy bars */
-    .accuracy-section {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 24px;
+    .acc-card {
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 12px; padding: 20px; margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
-    .accuracy-section h3 {
-      font-size: 13px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--text-muted);
-      margin-bottom: 16px;
+    .acc-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .acc-lbl { font-size: 13px; font-weight: 600; color: var(--text); width: 48px; }
+    .acc-track {
+      flex: 1; background: #f0eeff;
+      border-radius: 99px; height: 8px; overflow: hidden;
     }
-    .acc-row {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 10px;
-    }
-    .acc-label { font-size: 13px; font-weight: 600; width: 52px; }
-    .acc-bar-wrap {
-      flex: 1;
-      background: var(--surface2);
-      border-radius: 99px;
-      height: 8px;
-      overflow: hidden;
-    }
-    .acc-bar {
-      height: 100%;
-      border-radius: 99px;
-      transition: width 1s ease;
-    }
-    .acc-bar.white-bar { background: linear-gradient(90deg, #e0e0e0, #fff); }
-    .acc-bar.black-bar { background: linear-gradient(90deg, var(--accent), var(--blue)); }
-    .acc-pct { font-size: 14px; font-weight: 700; width: 44px; text-align: right; }
+    .acc-fill { height: 100%; border-radius: 99px; transition: width 1s ease; }
+    .acc-fill.white { background: linear-gradient(90deg, #c4b5fd, #7c3aed); }
+    .acc-fill.black { background: linear-gradient(90deg, #a78bfa, #4c1d95); }
+    .acc-pct { font-size: 14px; font-weight: 700; color: var(--text); width: 44px; text-align: right; }
 
-    /* Board */
-    #board-wrap {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
+    .results-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 20px; align-items: start;
     }
-    #board-wrap h3 {
-      font-size: 13px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--text-muted);
-      margin-bottom: 16px;
+    @media (max-width: 820px) { .results-grid { grid-template-columns: 1fr; } }
+
+    .board-card {
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 12px; padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
-    #board { width: 100%; max-width: 420px; margin: 0 auto; }
+    #board { width: 100%; max-width: 400px; margin: 0 auto; }
+
     .board-controls {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      margin-top: 14px;
+      display: flex; align-items: center;
+      justify-content: center; gap: 8px; margin-top: 14px;
     }
-    .board-controls .move-indicator {
-      font-size: 13px;
-      color: var(--text-muted);
-      min-width: 80px;
-      text-align: center;
+    .ctrl-btn {
+      background: #f5f3ff; border: 1px solid #e9e5ff;
+      border-radius: 8px; padding: 6px 11px;
+      font-size: 14px; cursor: pointer; color: var(--text-muted);
+      transition: all 0.15s;
+    }
+    .ctrl-btn:hover { background: var(--accent-light); color: var(--accent); border-color: rgba(124,58,237,0.3); }
+    .move-indicator {
+      font-size: 13px; color: var(--text-muted);
+      min-width: 90px; text-align: center; font-weight: 500;
     }
 
-    /* Move list */
-    #move-list-wrap {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 20px;
-      max-height: 520px;
-      overflow-y: auto;
+    .eval-wrap {
+      display: flex; align-items: center; gap: 8px; margin-top: 12px;
     }
-    #move-list-wrap h3 {
-      font-size: 13px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: var(--text-muted);
-      margin-bottom: 16px;
-      position: sticky;
-      top: 0;
-      background: var(--surface);
-      padding-bottom: 8px;
-    }
-    .move-row {
-      display: grid;
-      grid-template-columns: 28px 1fr 1fr;
-      gap: 4px;
-      font-size: 14px;
-      border-radius: 6px;
-      padding: 2px 4px;
-    }
-    .move-row:hover { background: var(--surface2); }
-    .move-num { color: var(--text-muted); font-size: 12px; padding-top: 2px; }
-    .move-cell {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      cursor: pointer;
-      padding: 3px 6px;
-      border-radius: 5px;
-      transition: background 0.15s;
-    }
-    .move-cell:hover { background: rgba(124,106,247,0.15); }
-    .move-cell.active { background: var(--accent); color: #fff; }
-    .move-cell .dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .dot.best      { background: var(--green); }
-    .dot.excellent { background: #a0e0a0; }
-    .dot.good      { background: var(--blue); }
-    .dot.inaccuracy{ background: var(--yellow); }
-    .dot.mistake   { background: var(--orange); }
-    .dot.blunder   { background: var(--red); }
-    .dot.unknown   { background: var(--text-muted); }
-
-    /* Eval bar */
-    .eval-bar-wrap {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 12px;
-    }
-    .eval-label { font-size: 12px; color: var(--text-muted); width: 36px; text-align: right; }
+    .eval-lbl { font-size: 11px; color: var(--text-muted); width: 32px; text-align: right; }
     .eval-track {
-      flex: 1;
-      height: 8px;
-      background: var(--surface2);
-      border-radius: 99px;
-      overflow: hidden;
+      flex: 1; height: 6px; background: #f0eeff;
+      border-radius: 99px; overflow: hidden;
     }
     .eval-fill {
       height: 100%;
       background: linear-gradient(90deg, var(--red), var(--accent), var(--green));
       transition: width 0.5s ease;
     }
-    .eval-val { font-size: 12px; color: var(--text-muted); width: 36px; }
+    .eval-num { font-size: 12px; color: var(--text-muted); width: 32px; }
 
-    /* Error banner */
-    .error-banner {
-      background: rgba(224,64,64,0.12);
-      border: 1px solid rgba(224,64,64,0.3);
-      border-radius: 8px;
-      padding: 12px 16px;
-      font-size: 13px;
-      color: #ff9090;
-      margin-bottom: 16px;
+    .movelist-card {
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 12px; padding: 20px;
+      max-height: 500px; overflow-y: auto;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .movelist-hdr {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.8px; color: var(--text-muted);
+      margin-bottom: 10px; position: sticky;
+      top: 0; background: #fff; padding-bottom: 8px;
     }
 
-    /* Opening pill */
-    .opening-pill {
-      display: inline-block;
-      background: rgba(124,106,247,0.15);
-      border: 1px solid rgba(124,106,247,0.3);
-      color: var(--accent);
-      padding: 4px 14px;
-      border-radius: 99px;
-      font-size: 13px;
-      font-weight: 600;
-      margin-bottom: 20px;
-    }
-
-    /* Legend */
-    .legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin-bottom: 16px;
-    }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
     .legend-item {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 12px;
-      color: var(--text-muted);
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--text-muted);
     }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    .move-row {
+      display: grid; grid-template-columns: 24px 1fr 1fr;
+      gap: 4px; font-size: 14px;
+      border-radius: 6px; padding: 2px 4px;
+    }
+    .move-row:hover { background: #faf9ff; }
+    .move-num { color: var(--text-muted); font-size: 12px; padding-top: 3px; }
+    .move-cell {
+      display: flex; align-items: center; gap: 6px;
+      cursor: pointer; padding: 3px 6px;
+      border-radius: 5px; transition: background 0.15s; color: var(--text);
+    }
+    .move-cell:hover { background: var(--accent-light); }
+    .move-cell.active { background: var(--accent); color: #fff; }
 
-    /* Footer */
-    footer {
-      text-align: center;
-      padding: 40px 0 24px;
-      font-size: 12px;
-      color: var(--text-muted);
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .dot.best       { background: #059669; }
+    .dot.excellent  { background: #34d399; }
+    .dot.good       { background: #2563eb; }
+    .dot.inaccuracy { background: #d97706; }
+    .dot.mistake    { background: #ea580c; }
+    .dot.blunder    { background: #dc2626; }
+    .dot.unknown    { background: #9ca3af; }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d5d0f0; border-radius: 3px; }
+
+    @media (max-width: 820px) {
+      .sidebar { display: none; }
+      .main    { margin-left: 0; }
+      .inner   { padding: 24px 16px 48px; }
     }
   </style>
 </head>
 <body>
 
-<!-- ── Nav ──────────────────────────────────────────────────────────────── -->
-<nav>
-  <div class="logo">
-    <span class="logo-icon">♟</span>
-    Board<span>flow</span>
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <span>♟</span> Board<span class="acc">flow</span>
   </div>
-  <div class="powered-by">Powered by <strong>Roboflow</strong> + Stockfish</div>
-  <span class="badge">BETA</span>
-</nav>
+  <nav class="sidebar-nav">
+    <div class="nav-item active">
+      <span class="nav-icon">⚡</span> New Analysis
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">📋</span> History
+    </div>
+    <div class="nav-item">
+      <span class="nav-icon">⚙️</span> Settings
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="powered-box">
+      Brought to you by<br>
+      <strong>Roboflow</strong> + Stockfish
+    </div>
+  </div>
+</aside>
 
-<!-- ── Hero ─────────────────────────────────────────────────────────────── -->
-<main>
+<div class="main">
+<div class="inner">
+
 <div id="hero">
-  <h1>Your game.<br><span>Instantly analysed.</span></h1>
-  <p>Upload a screen recording of any chess game. Boardflow reads every move using computer vision, then gives you Lichess-grade accuracy analysis — no PGN needed.</p>
+  <div class="hero-chip">Boardflow Beta</div>
+  <h1>Your game.<br><span class="acc">Instantly analysed.</span></h1>
+  <p>Upload a screen recording of any Chess.com game. Boardflow reads every move using computer vision and delivers Lichess-grade accuracy — no PGN needed.</p>
 </div>
 
-<!-- ── Upload card ───────────────────────────────────────────────────────── -->
 <div id="upload-section">
   <div class="card">
-    <h3>Upload your game</h3>
-
+    <div class="card-label">Upload your game</div>
     <div id="drop-zone">
       <div class="drop-icon">🎬</div>
-      <p><strong>Drop your screen recording here</strong></p>
-      <p>or click to browse</p>
-      <small>MP4 · MOV · AVI · WEBM · up to 500 MB</small>
-      <div id="file-name"></div>
+      <div class="drop-title">Drop your screen recording here</div>
+      <div class="drop-sub">or click to browse</div>
+      <div class="drop-hint">MP4 · MOV · AVI · WEBM</div>
     </div>
     <input type="file" id="file-input" accept="video/*" />
-
-    <button class="btn btn-primary" id="analyze-btn" disabled>
-      ♟ Analyse Game
-    </button>
-
+    <div id="file-selected">
+      <span class="file-icon-badge">🎬</span>
+      <div class="file-meta">
+        <div class="fname" id="fname-text"></div>
+        <div class="fsize" id="fsize-text"></div>
+      </div>
+      <button class="btn-clear" id="clear-btn" title="Remove file">✕</button>
+    </div>
+    <button class="btn btn-primary" id="analyze-btn" disabled>♟ Analyse Game</button>
     <div id="progress-section">
-      <div class="progress-bar-wrap">
-        <div class="progress-bar" id="progress-bar"></div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-bar"></div>
       </div>
       <div id="progress-label">Processing…</div>
     </div>
-
-    <div id="upload-error" class="error-banner" style="display:none;margin-top:16px;"></div>
+    <div id="upload-error" class="error-banner" style="display:none;"></div>
   </div>
 </div>
 
-<!-- ── Results ───────────────────────────────────────────────────────────── -->
 <div id="results-section">
-  <div style="text-align:center; margin: 48px 0 28px;">
+  <div class="results-topbar">
     <div id="opening-pill" class="opening-pill"></div>
+    <button class="btn btn-outline" id="reset-btn">↩ New Analysis</button>
   </div>
-
-  <!-- Stats row -->
   <div class="stats-row">
     <div class="stat-card">
       <div class="stat-label">White Accuracy</div>
@@ -547,82 +486,66 @@
       <div class="stat-sub">half-moves</div>
     </div>
   </div>
-
-  <!-- Accuracy bars -->
-  <div class="accuracy-section">
-    <h3>Player Accuracy</h3>
+  <div class="acc-card">
+    <div class="card-label">Player Accuracy</div>
     <div class="acc-row">
-      <div class="acc-label" style="color:#fff;">White</div>
-      <div class="acc-bar-wrap"><div class="acc-bar white-bar" id="acc-bar-white" style="width:0%"></div></div>
+      <div class="acc-lbl">White</div>
+      <div class="acc-track"><div class="acc-fill white" id="acc-bar-white" style="width:0%"></div></div>
       <div class="acc-pct" id="acc-pct-white">—</div>
     </div>
     <div class="acc-row">
-      <div class="acc-label" style="color:#aaa;">Black</div>
-      <div class="acc-bar-wrap"><div class="acc-bar black-bar" id="acc-bar-black" style="width:0%"></div></div>
+      <div class="acc-lbl">Black</div>
+      <div class="acc-track"><div class="acc-fill black" id="acc-bar-black" style="width:0%"></div></div>
       <div class="acc-pct" id="acc-pct-black">—</div>
     </div>
   </div>
-
-  <!-- Board + moves -->
   <div class="results-grid">
-    <!-- Board -->
-    <div id="board-wrap">
-      <h3>Game Replay</h3>
+    <div class="board-card">
+      <div class="card-label">Game Replay</div>
       <div id="board"></div>
       <div class="board-controls">
-        <button class="btn btn-ghost" id="btn-start" title="Start">⏮</button>
-        <button class="btn btn-ghost" id="btn-prev"  title="Previous">←</button>
+        <button class="ctrl-btn" id="btn-start">⏮</button>
+        <button class="ctrl-btn" id="btn-prev">←</button>
         <div class="move-indicator" id="move-indicator">Start</div>
-        <button class="btn btn-ghost" id="btn-next"  title="Next">→</button>
-        <button class="btn btn-ghost" id="btn-end"   title="End">⏭</button>
+        <button class="ctrl-btn" id="btn-next">→</button>
+        <button class="ctrl-btn" id="btn-end">⏭</button>
       </div>
-      <!-- Eval bar -->
-      <div class="eval-bar-wrap" id="eval-bar-section" style="display:none;">
-        <div class="eval-label">Black</div>
-        <div class="eval-track">
-          <div class="eval-fill" id="eval-fill" style="width:50%"></div>
-        </div>
-        <div class="eval-val" id="eval-val">0.0</div>
-        <div class="eval-label" style="text-align:left;">White</div>
+      <div class="eval-wrap" id="eval-bar-section" style="display:none;">
+        <div class="eval-lbl">Black</div>
+        <div class="eval-track"><div class="eval-fill" id="eval-fill" style="width:50%"></div></div>
+        <div class="eval-num" id="eval-val">0.0</div>
+        <div class="eval-lbl" style="text-align:left">White</div>
       </div>
     </div>
-
-    <!-- Move list -->
-    <div id="move-list-wrap">
-      <h3>Move by Move</h3>
-      <div class="legend">
-        <div class="legend-item"><div class="dot best"></div> Best</div>
-        <div class="legend-item"><div class="dot excellent"></div> Excellent</div>
-        <div class="legend-item"><div class="dot good"></div> Good</div>
-        <div class="legend-item"><div class="dot inaccuracy"></div> Inaccuracy</div>
-        <div class="legend-item"><div class="dot mistake"></div> Mistake</div>
-        <div class="legend-item"><div class="dot blunder"></div> Blunder</div>
+    <div class="movelist-card">
+      <div class="movelist-hdr">
+        Move by Move
+        <div class="legend">
+          <div class="legend-item"><div class="dot best"></div> Best</div>
+          <div class="legend-item"><div class="dot excellent"></div> Excellent</div>
+          <div class="legend-item"><div class="dot good"></div> Good</div>
+          <div class="legend-item"><div class="dot inaccuracy"></div> Inaccuracy</div>
+          <div class="legend-item"><div class="dot mistake"></div> Mistake</div>
+          <div class="legend-item"><div class="dot blunder"></div> Blunder</div>
+        </div>
       </div>
       <div id="move-list"></div>
     </div>
   </div>
-
-  <!-- Analyse another -->
-  <div style="text-align:center;margin-top:40px;">
-    <button class="btn btn-ghost" id="reset-btn">↩ Analyse another game</button>
-  </div>
 </div>
 
-<footer>Boardflow — built with <a href="https://roboflow.com">Roboflow</a> computer vision &amp; Stockfish</footer>
-</main>
+</div>
+</div>
 
 <script>
-// ── State ─────────────────────────────────────────────────────────────────
-let selectedFile = null;
-let gameData     = null;   // the API response
-let currentIdx   = -1;     // which half-move we're viewing (-1 = start)
-let board        = null;   // chessboard.js instance
-let chess        = null;   // chess.js instance
+let selectedFile = null, gameData = null, currentIdx = -1, board = null, chess = null;
 
-// ── DOM refs ──────────────────────────────────────────────────────────────
 const dropZone     = document.getElementById('drop-zone');
 const fileInput    = document.getElementById('file-input');
-const fileNameEl   = document.getElementById('file-name');
+const fileSelected = document.getElementById('file-selected');
+const fnameText    = document.getElementById('fname-text');
+const fsizeText    = document.getElementById('fsize-text');
+const clearBtn     = document.getElementById('clear-btn');
 const analyzeBtn   = document.getElementById('analyze-btn');
 const progressSec  = document.getElementById('progress-section');
 const progressBar  = document.getElementById('progress-bar');
@@ -632,258 +555,152 @@ const heroSection  = document.getElementById('hero');
 const uploadSection= document.getElementById('upload-section');
 const resultSection= document.getElementById('results-section');
 
-// ── File handling ─────────────────────────────────────────────────────────
 dropZone.addEventListener('click', () => fileInput.click());
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-dropZone.addEventListener('dragleave', ()=> dropZone.classList.remove('dragover'));
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', e => {
-  e.preventDefault();
-  dropZone.classList.remove('dragover');
+  e.preventDefault(); dropZone.classList.remove('dragover');
   const f = e.dataTransfer.files[0];
   if (f && f.type.startsWith('video/')) setFile(f);
 });
-fileInput.addEventListener('change', e => {
-  if (e.target.files[0]) setFile(e.target.files[0]);
-});
+fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
 
 function setFile(f) {
   selectedFile = f;
-  fileNameEl.textContent = '✓ ' + f.name;
+  fnameText.textContent = f.name;
+  fsizeText.textContent = formatBytes(f.size);
+  dropZone.style.display     = 'none';
+  fileSelected.style.display = 'flex';
   analyzeBtn.disabled = false;
+  uploadError.style.display  = 'none';
 }
 
-// ── Analyse ───────────────────────────────────────────────────────────────
+function clearFile() {
+  selectedFile = null; fileInput.value = '';
+  dropZone.style.display     = '';
+  fileSelected.style.display = 'none';
+  analyzeBtn.disabled = true;
+  uploadError.style.display  = 'none';
+}
+
+clearBtn.addEventListener('click', clearFile);
+
+function formatBytes(b) {
+  return b < 1048576 ? (b/1024).toFixed(1)+' KB' : (b/1048576).toFixed(1)+' MB';
+}
+
 analyzeBtn.addEventListener('click', async () => {
   uploadError.style.display = 'none';
   analyzeBtn.disabled = true;
   progressSec.style.display = 'block';
-
   const steps = [
-    [10, 'Extracting frames from video…'],
-    [35, 'Running Roboflow detection…'],
-    [65, 'Building board states…'],
-    [80, 'Detecting moves…'],
-    [92, 'Running Stockfish analysis…'],
-    [99, 'Finishing up…'],
+    [10,'Extracting frames from video…'],[35,'Running Roboflow detection…'],
+    [65,'Building board states…'],[80,'Detecting moves…'],
+    [92,'Running Stockfish analysis…'],[99,'Finishing up…']
   ];
-
-  let stepIdx = 0;
+  let si = 0;
   const ticker = setInterval(() => {
-    if (stepIdx < steps.length) {
-      const [pct, lbl] = steps[stepIdx++];
-      progressBar.style.width = pct + '%';
-      progressLbl.textContent = lbl;
-    }
+    if (si < steps.length) { const [p,l] = steps[si++]; progressBar.style.width=p+'%'; progressLbl.textContent=l; }
   }, 2200);
-
   try {
-    const form = new FormData();
-    form.append('video', selectedFile);
-
-    const res = await fetch('/api/analyze', { method: 'POST', body: form });
+    const form = new FormData(); form.append('video', selectedFile);
+    const res = await fetch('/api/analyze', { method:'POST', body:form });
     const data = await res.json();
-
-    if (!res.ok) {
-      throw new Error(data.detail || 'Analysis failed');
-    }
-
-    clearInterval(ticker);
-    progressBar.style.width = '100%';
-    progressLbl.textContent = 'Done!';
+    if (!res.ok) throw new Error(data.detail || 'Analysis failed');
+    clearInterval(ticker); progressBar.style.width='100%'; progressLbl.textContent='Done!';
     await new Promise(r => setTimeout(r, 500));
-
     showResults(data);
-  } catch (err) {
-    clearInterval(ticker);
-    progressSec.style.display = 'none';
-    analyzeBtn.disabled = false;
-    uploadError.textContent = '⚠ ' + err.message;
-    uploadError.style.display = 'block';
+  } catch(err) {
+    clearInterval(ticker); progressSec.style.display='none'; analyzeBtn.disabled=false;
+    uploadError.textContent='⚠ '+err.message; uploadError.style.display='block';
   }
 });
 
-// ── Render results ────────────────────────────────────────────────────────
 function showResults(data) {
   gameData = data;
-
-  // Hide upload, show results
-  heroSection.style.display   = 'none';
-  uploadSection.style.display = 'none';
-  resultSection.style.display = 'block';
-
-  // Opening
-  document.getElementById('opening-pill').textContent = '♟ ' + (data.opening || 'Unknown Opening');
-
-  // Stats
-  document.getElementById('stat-white').textContent = data.white_accuracy != null ? data.white_accuracy + '%' : '—';
-  document.getElementById('stat-black').textContent = data.black_accuracy != null ? data.black_accuracy + '%' : '—';
+  heroSection.style.display='none'; uploadSection.style.display='none'; resultSection.style.display='block';
+  document.getElementById('opening-pill').textContent = '♟ '+(data.opening||'Unknown Opening');
+  document.getElementById('stat-white').textContent = data.white_accuracy!=null ? data.white_accuracy+'%' : '—';
+  document.getElementById('stat-black').textContent = data.black_accuracy!=null ? data.black_accuracy+'%' : '—';
   document.getElementById('stat-moves').textContent = data.moves.length;
-
-  // Accuracy bars
   setTimeout(() => {
-    const wa = data.white_accuracy || 0;
-    const ba = data.black_accuracy || 0;
-    document.getElementById('acc-bar-white').style.width = wa + '%';
-    document.getElementById('acc-bar-black').style.width = ba + '%';
-    document.getElementById('acc-pct-white').textContent = wa ? wa + '%' : '—';
-    document.getElementById('acc-pct-black').textContent = ba ? ba + '%' : '—';
+    const wa=data.white_accuracy||0, ba=data.black_accuracy||0;
+    document.getElementById('acc-bar-white').style.width=wa+'%';
+    document.getElementById('acc-bar-black').style.width=ba+'%';
+    document.getElementById('acc-pct-white').textContent=wa?wa+'%':'—';
+    document.getElementById('acc-pct-black').textContent=ba?ba+'%':'—';
   }, 100);
-
-  // Error notice
   if (data.error && !data.stockfish_available) {
-    const err = document.createElement('div');
-    err.className = 'error-banner';
-    err.textContent = '⚠ ' + data.error;
-    document.querySelector('.accuracy-section').before(err);
+    const e=document.createElement('div'); e.className='error-banner'; e.textContent='⚠ '+data.error;
+    document.querySelector('.acc-card').before(e);
   }
-
-  // Build move list
-  buildMoveList(data.moves);
-
-  // Init board
-  initBoard(data.moves);
+  buildMoveList(data.moves); initBoard(data.moves);
 }
 
 function buildMoveList(moves) {
-  const list = document.getElementById('move-list');
-  list.innerHTML = '';
-
-  // Group into pairs
-  for (let i = 0; i < moves.length; i += 2) {
-    const row = document.createElement('div');
-    row.className = 'move-row';
-
-    const num = document.createElement('div');
-    num.className = 'move-num';
-    num.textContent = moves[i].move_number + '.';
-    row.appendChild(num);
-
-    [i, i+1].forEach(idx => {
-      if (idx >= moves.length) { row.appendChild(document.createElement('div')); return; }
-      const m = moves[idx];
-      const cell = document.createElement('div');
-      cell.className = 'move-cell';
-      cell.dataset.idx = idx;
-
-      const dot = document.createElement('div');
-      dot.className = 'dot ' + (m.classification || 'unknown');
-      cell.appendChild(dot);
-
-      const txt = document.createTextNode(m.san);
-      cell.appendChild(txt);
-
-      cell.addEventListener('click', () => navigateTo(idx));
-      row.appendChild(cell);
+  const list = document.getElementById('move-list'); list.innerHTML='';
+  for (let i=0; i<moves.length; i+=2) {
+    const row=document.createElement('div'); row.className='move-row';
+    const num=document.createElement('div'); num.className='move-num'; num.textContent=moves[i].move_number+'.'; row.appendChild(num);
+    [i,i+1].forEach(idx => {
+      if (idx>=moves.length) { row.appendChild(document.createElement('div')); return; }
+      const m=moves[idx], cell=document.createElement('div');
+      cell.className='move-cell'; cell.dataset.idx=idx;
+      const dot=document.createElement('div'); dot.className='dot '+(m.classification||'unknown');
+      cell.appendChild(dot); cell.appendChild(document.createTextNode(m.san));
+      cell.addEventListener('click', ()=>navigateTo(idx)); row.appendChild(cell);
     });
-
     list.appendChild(row);
   }
 }
 
-// ── Board navigation ──────────────────────────────────────────────────────
 function initBoard(moves) {
-  chess = new Chess();
-  board = Chessboard('board', {
-    position: 'start',
-    pieceTheme: 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/img/chesspieces/wikipedia/{piece}.png',
-  });
-  currentIdx = -1;
-  updateBoardControls();
-
-  document.getElementById('btn-start').onclick = () => navigateTo(-1);
-  document.getElementById('btn-prev') .onclick = () => navigateTo(Math.max(-1, currentIdx - 1));
-  document.getElementById('btn-next') .onclick = () => navigateTo(Math.min(gameData.moves.length - 1, currentIdx + 1));
-  document.getElementById('btn-end')  .onclick = () => navigateTo(gameData.moves.length - 1);
-
-  // Keyboard nav
-  document.onkeydown = e => {
-    if (resultSection.style.display === 'none') return;
-    if (e.key === 'ArrowLeft')  navigateTo(Math.max(-1, currentIdx - 1));
-    if (e.key === 'ArrowRight') navigateTo(Math.min(gameData.moves.length - 1, currentIdx + 1));
+  chess=new Chess();
+  board=Chessboard('board',{position:'start',pieceTheme:'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/img/chesspieces/wikipedia/{piece}.png'});
+  currentIdx=-1; updateControls();
+  document.getElementById('btn-start').onclick=()=>navigateTo(-1);
+  document.getElementById('btn-prev').onclick=()=>navigateTo(Math.max(-1,currentIdx-1));
+  document.getElementById('btn-next').onclick=()=>navigateTo(Math.min(gameData.moves.length-1,currentIdx+1));
+  document.getElementById('btn-end').onclick=()=>navigateTo(gameData.moves.length-1);
+  document.onkeydown=e=>{
+    if(resultSection.style.display==='none') return;
+    if(e.key==='ArrowLeft') navigateTo(Math.max(-1,currentIdx-1));
+    if(e.key==='ArrowRight') navigateTo(Math.min(gameData.moves.length-1,currentIdx+1));
   };
 }
 
 function navigateTo(idx) {
-  if (!gameData) return;
-  currentIdx = idx;
-
-  // Rebuild board up to this index
-  chess = new Chess();
-  for (let i = 0; i <= idx; i++) {
-    chess.move(gameData.moves[i].san);
-  }
-  board.position(chess.fen(), false);
-
-  updateBoardControls();
-  highlightActiveMove(idx);
-  updateEvalBar(idx);
+  if(!gameData) return; currentIdx=idx;
+  chess=new Chess(); for(let i=0;i<=idx;i++) chess.move(gameData.moves[i].san);
+  board.position(chess.fen(),false); updateControls(); highlightActive(idx); updateEval(idx);
 }
 
-function updateBoardControls() {
-  const total = gameData ? gameData.moves.length : 0;
-  const ind = document.getElementById('move-indicator');
-  if (currentIdx < 0) {
-    ind.textContent = 'Start';
-  } else {
-    const m = gameData.moves[currentIdx];
-    ind.textContent = m.move_number + (m.color === 'white' ? '. ' : '… ') + m.san;
-  }
+function updateControls() {
+  const ind=document.getElementById('move-indicator');
+  if(currentIdx<0){ind.textContent='Start';return;}
+  const m=gameData.moves[currentIdx];
+  ind.textContent=m.move_number+(m.color==='white'?'. ':'… ')+m.san;
 }
 
-function highlightActiveMove(idx) {
-  document.querySelectorAll('.move-cell').forEach(el => {
-    el.classList.toggle('active', parseInt(el.dataset.idx) === idx);
-  });
-  // Scroll active move into view
-  const active = document.querySelector('.move-cell.active');
-  if (active) active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+function highlightActive(idx) {
+  document.querySelectorAll('.move-cell').forEach(el=>el.classList.toggle('active',parseInt(el.dataset.idx)===idx));
+  const a=document.querySelector('.move-cell.active'); if(a) a.scrollIntoView({block:'nearest',behavior:'smooth'});
 }
 
-function updateEvalBar(idx) {
-  const evalSection = document.getElementById('eval-bar-section');
-  const evalFill    = document.getElementById('eval-fill');
-  const evalVal     = document.getElementById('eval-val');
-
-  if (idx < 0 || !gameData.moves[idx].eval_after) {
-    evalSection.style.display = 'none';
-    return;
-  }
-
-  const cp = gameData.moves[idx].eval_after;
-  evalSection.style.display = 'flex';
-
-  // Map cp to bar width: 0cp = 50%, +500 = 90%, -500 = 10%
-  const pct = Math.max(5, Math.min(95, 50 + cp / 500 * 40));
-  evalFill.style.width = pct + '%';
-
-  if (Math.abs(cp) >= 9000) {
-    evalVal.textContent = cp > 0 ? 'M' : '-M';
-  } else {
-    evalVal.textContent = (cp > 0 ? '+' : '') + (cp / 100).toFixed(1);
-  }
+function updateEval(idx) {
+  const sec=document.getElementById('eval-bar-section'),fill=document.getElementById('eval-fill'),val=document.getElementById('eval-val');
+  if(idx<0||!gameData.moves[idx].eval_after){sec.style.display='none';return;}
+  const cp=gameData.moves[idx].eval_after; sec.style.display='flex';
+  fill.style.width=Math.max(5,Math.min(95,50+cp/500*40))+'%';
+  val.textContent=Math.abs(cp)>=9000?(cp>0?'M':'-M'):(cp>0?'+':'')+(cp/100).toFixed(1);
 }
 
-// ── Reset ─────────────────────────────────────────────────────────────────
-document.getElementById('reset-btn').addEventListener('click', () => {
-  selectedFile = null;
-  gameData     = null;
-  currentIdx   = -1;
-
-  fileNameEl.textContent = '';
-  fileInput.value = '';
-  analyzeBtn.disabled = true;
-  progressSec.style.display = 'none';
-  progressBar.style.width = '0%';
-  uploadError.style.display = 'none';
-
-  // Remove any injected error banners
-  document.querySelectorAll('.error-banner').forEach(el => el.remove());
-
-  heroSection.style.display   = '';
-  uploadSection.style.display = '';
-  resultSection.style.display = 'none';
-
-  document.onkeydown = null;
+document.getElementById('reset-btn').addEventListener('click', ()=>{
+  gameData=null; currentIdx=-1; clearFile();
+  progressSec.style.display='none'; progressBar.style.width='0%'; uploadError.style.display='none';
+  document.querySelectorAll('.error-banner').forEach(el=>el.remove());
+  heroSection.style.display=''; uploadSection.style.display=''; resultSection.style.display='none';
+  document.onkeydown=null;
 });
 </script>
 </body>
