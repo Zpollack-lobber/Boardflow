@@ -123,6 +123,8 @@ def _run_webrtc_session(tmp_path: str) -> list[dict]:
         count_changed = (ball_count != last_count[0])
         if frame_count[0] == 1:
             print(f"[boardflow] first frame: ball_count={ball_count} preds={len(preds)} err={repr(err)}")
+            if preds:
+                print(f"[boardflow] prediction sample: {repr(preds[0])}")
         if count_changed and ball_count is not None:
             print(f"[boardflow] MOVE DETECTED frame {fid}: ball_count {last_count[0]} → {ball_count}  preds={len(preds)}")
             last_count[0] = ball_count
