@@ -113,7 +113,14 @@ def _run_webrtc_session(tmp_path: str) -> list[dict]:
     @session.on_data()
     def on_data(data: dict, metadata: VideoMetadata):
         fid        = metadata.frame_id
-        preds      = data.get("predictions") or []
+        raw_preds  = data.get("predictions")
+        # WebRTC may return predictions as a dict or list — normalize to list
+        if isinstance(raw_preds, list):
+            preds = raw_preds
+        elif isinstance(raw_preds, dict):
+            preds = list(raw_preds.values()) if raw_preds else []
+        else:
+            preds = []
         ball_count = data.get("ball_count")
         err        = data.get("vision_events_error_status")
 
@@ -123,8 +130,7 @@ def _run_webrtc_session(tmp_path: str) -> list[dict]:
         count_changed = (ball_count != last_count[0])
         if frame_count[0] == 1:
             print(f"[boardflow] first frame: ball_count={ball_count} preds={len(preds)} err={repr(err)}")
-            if preds:
-                print(f"[boardflow] prediction sample: {repr(preds[0])}")
+            print(f"[boardflow] predictions type={type(preds).__name__} value={repr(preds)[:400]}")
         if count_changed and ball_count is not None:
             print(f"[boardflow] MOVE DETECTED frame {fid}: ball_count {last_count[0]} → {ball_count}  preds={len(preds)}")
             last_count[0] = ball_count
