@@ -128,8 +128,8 @@ def predictions_to_board(predictions: list[dict],
     # Estimate cell size from spread of pieces  (board ≈ 8 cells wide/tall)
     x_spread = max(xs) - min(xs)
     y_spread = max(ys) - min(ys)
-    cell_w = (x_spread / 6) if x_spread > 0 else 40   # 8 squares → 7 gaps
-    cell_h = (y_spread / 6) if y_spread > 0 else 40
+    cell_w = (x_spread / 7) if x_spread > 0 else 40   # 8 squares → 7 gaps between centers
+    cell_h = (y_spread / 7) if y_spread > 0 else 40
 
     board_x0 = min(xs) - cell_w * 0.5
     board_y0 = min(ys) - cell_h * 0.5
