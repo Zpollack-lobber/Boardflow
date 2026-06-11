@@ -656,7 +656,7 @@ function buildMoveList(moves) {
 
 function initBoard(moves) {
   chess=new Chess();
-  board=Chessboard('board',{position:'start',pieceTheme:'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/img/chesspieces/wikipedia/{piece}.png'});
+  setTimeout(() => { board=Chessboard('board',{position:'start',pieceTheme:'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/img/chesspieces/wikipedia/{piece}.png'}); }, 50);
   currentIdx=-1; updateControls();
   document.getElementById('btn-start').onclick=()=>navigateTo(-1);
   document.getElementById('btn-prev').onclick=()=>navigateTo(Math.max(-1,currentIdx-1));
