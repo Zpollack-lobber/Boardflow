@@ -412,42 +412,18 @@
     .dot.blunder    { background: #dc2626; }
     .dot.unknown    { background: #9ca3af; }
 
-    /* ── Spinning pawn loader ─────────────────────────────────────────────── */
-    #pawn-loader {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(15,14,26,0.72);
-      backdrop-filter: blur(4px);
-      z-index: 999;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 20px;
-    }
-    #pawn-loader.active { display: flex; }
-
+    /* ── Spinning pawn (inside button) ───────────────────────────────────── */
     .pawn-spin {
-      font-size: 72px;
-      animation: pawn-rotate 1.1s linear infinite;
-      filter: drop-shadow(0 0 20px rgba(124,58,237,0.7));
+      display: inline-block;
+      animation: pawn-burst 2.4s ease-in-out infinite;
+      font-size: 17px;
       line-height: 1;
     }
-    @keyframes pawn-rotate {
-      0%   { transform: rotate(0deg) scale(1); }
-      50%  { transform: rotate(180deg) scale(1.15); }
-      100% { transform: rotate(360deg) scale(1); }
-    }
-
-    .pawn-loader-label {
-      font-size: 15px;
-      font-weight: 600;
-      color: rgba(255,255,255,0.9);
-      letter-spacing: 0.3px;
-    }
-    .pawn-loader-sub {
-      font-size: 13px;
-      color: rgba(255,255,255,0.45);
+    /* 3 spins, then pause */
+    @keyframes pawn-burst {
+      0%   { transform: rotate(0deg); }
+      55%  { transform: rotate(1080deg); }
+      100% { transform: rotate(1080deg); }
     }
 
     ::-webkit-scrollbar { width: 5px; }
@@ -462,13 +438,6 @@
   </style>
 </head>
 <body>
-
-<!-- ── Pawn loader overlay ────────────────────────────────────────────────── -->
-<div id="pawn-loader">
-  <div class="pawn-spin">♟</div>
-  <div class="pawn-loader-label" id="pawn-loader-label">Analysing your game…</div>
-  <div class="pawn-loader-sub" id="pawn-loader-sub">This usually takes 15–30 seconds</div>
-</div>
 
 <!-- ── Sidebar ───────────────────────────────────────────────────────────── -->
 <aside class="sidebar">
@@ -688,32 +657,26 @@ function formatBytes(bytes) {
 }
 
 // ── Analyse ───────────────────────────────────────────────────────────────
-const pawnLoader      = document.getElementById('pawn-loader');
-const pawnLoaderLabel = document.getElementById('pawn-loader-label');
-const pawnLoaderSub   = document.getElementById('pawn-loader-sub');
-
 const loaderSteps = [
   'Extracting frames…',
   'Running vision analysis…',
-  'Building board states…',
   'Detecting moves…',
   'Running Stockfish…',
   'Finishing up…',
 ];
 
+function setBtnLoading(label) {
+  analyzeBtn.innerHTML = `<span class="pawn-spin">♟</span> ${label}`;
+}
+
 analyzeBtn.addEventListener('click', async () => {
   uploadError.style.display = 'none';
   analyzeBtn.disabled = true;
-
-  // Show spinning pawn overlay
-  pawnLoaderLabel.textContent = loaderSteps[0];
-  pawnLoader.classList.add('active');
+  setBtnLoading(loaderSteps[0]);
 
   let si = 1;
   const ticker = setInterval(() => {
-    if (si < loaderSteps.length) {
-      pawnLoaderLabel.textContent = loaderSteps[si++];
-    }
+    if (si < loaderSteps.length) setBtnLoading(loaderSteps[si++]);
   }, 4000);
 
   try {
@@ -724,15 +687,13 @@ analyzeBtn.addEventListener('click', async () => {
     if (!res.ok) throw new Error(data.detail || 'Analysis failed');
 
     clearInterval(ticker);
-    pawnLoaderLabel.textContent = 'Done!';
-    pawnLoaderSub.textContent   = '';
-    await new Promise(r => setTimeout(r, 600));
-    pawnLoader.classList.remove('active');
+    setBtnLoading('Done!');
+    await new Promise(r => setTimeout(r, 500));
     showResults(data);
   } catch (err) {
     clearInterval(ticker);
-    pawnLoader.classList.remove('active');
     analyzeBtn.disabled = false;
+    analyzeBtn.innerHTML = '♟ Analyse Game';
     uploadError.textContent   = '⚠ ' + err.message;
     uploadError.style.display = 'block';
   }
