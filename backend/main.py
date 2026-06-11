@@ -76,6 +76,10 @@ async def analyze_video(video: UploadFile = File(...)):
                 print(f"[boardflow] frame {frame.index} failed: {e}")
                 board_states.append(None)
 
+        # Diagnostic: how many unique board states did we get?
+        unique = len({str(sorted(s.items())) for s in board_states if s})
+        print(f"[boardflow] {unique} unique board states from {len(board_states)} frames")
+
         chess_board     = init_chess_board()
         moves_san       = []
         prev_state      = None
