@@ -99,7 +99,7 @@ async def analyze_video(video: UploadFile = File(...)):
         prev_state      = None
         last_move_frame = -999
         last_move_obj   = None
-        MIN_MOVE_GAP    = 2
+        MIN_MOVE_GAP    = 1
 
         for idx, state in enumerate(board_states):
             if state is None:
