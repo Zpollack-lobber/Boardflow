@@ -21,6 +21,8 @@ from move_detector   import boards_to_move, init_chess_board
 from analyzer        import analyze_game
 
 import chess
+import cv2
+import numpy as np
 
 # ── Roboflow config (baked in) ────────────────────────────────────────────────
 ROBOFLOW_API_KEY  = os.environ.get("ROBOFLOW_API_KEY",  "sc2UeMDMoHAn22SEJbHv")
@@ -69,14 +71,51 @@ async def analyze_video(video: UploadFile = File(...)):
 
         print(f"[boardflow] extracted {len(frames)} frames, model={ROBOFLOW_MODEL_ID}")
 
+        # ── Step 2a: find board crop region from frame 0 ─────────────────────
+        # Run a full inference on frame 0 to detect the 'board' bounding box,
+        # then use that crop for ALL frames so Roboflow only sees board squares.
+        board_crop = None  # (x0, y0, x1, y1) in frame.image_np pixel coords
+        try:
+            result0 = client.infer(frames[0].image_np, model_id=ROBOFLOW_MODEL_ID)
+            for p in result0.get("predictions", []):
+                if p.get("class", "").lower() == "board":
+                    cx, cy = p["x"], p["y"]
+                    hw, hh = p["width"] / 2, p["height"] / 2
+                    pad = max(hw, hh) * 0.20          # 20% padding for edge pieces
+                    ih, iw = frames[0].image_np.shape[:2]
+                    board_crop = (
+                        max(0,   int(cx - hw - pad)),
+                        max(0,   int(cy - hh - pad)),
+                        min(iw,  int(cx + hw + pad)),
+                        min(ih,  int(cy + hh + pad)),
+                    )
+                    print(f"[boardflow] board bbox detected: {board_crop}")
+                    break
+            if board_crop is None:
+                print("[boardflow] no 'board' class detected — using full frame")
+        except Exception as e:
+            print(f"[boardflow] board detection error: {e}")
+
+        def _crop_to_board(img: np.ndarray) -> np.ndarray:
+            """Crop image to board region and resize to 640×640."""
+            if board_crop:
+                x0, y0, x1, y1 = board_crop
+                cropped = img[y0:y1, x0:x1]
+                if cropped.size == 0:
+                    return img
+                return cv2.resize(cropped, (640, 640))
+            return img
+
+        # ── Step 2b: infer on board-cropped frames ────────────────────────────
         board_states = []
         for frame in frames:
             try:
-                result = client.infer(frame.image_np, model_id=ROBOFLOW_MODEL_ID)
+                infer_img = _crop_to_board(frame.image_np)
+                result = client.infer(infer_img, model_id=ROBOFLOW_MODEL_ID)
                 raw_preds = result.get("predictions", [])
                 if frame.index == 0:
                     classes_seen = [p["class"] for p in raw_preds]
-                    print(f"[boardflow] frame 0 predictions: {len(raw_preds)} pieces, classes={classes_seen[:6]}")
+                    print(f"[boardflow] frame 0 (cropped) predictions: {len(raw_preds)} pieces, classes={classes_seen[:6]}")
                 preds = [
                     {
                         "class":      p["class"],
@@ -86,13 +125,13 @@ async def analyze_video(video: UploadFile = File(...)):
                         "height":     p["height"],
                         "confidence": p.get("confidence", 1.0),
                     }
-                    for p in result.get("predictions", [])
+                    for p in raw_preds
                 ]
                 board = predictions_to_board(
                     preds,
                     white_at_bottom=True,
-                    image_width=frame.image_np.shape[1],
-                    image_height=frame.image_np.shape[0],
+                    image_width=infer_img.shape[1],
+                    image_height=infer_img.shape[0],
                 )
                 board_states.append(board)
             except Exception as e:
