@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).parent))
 from frame_extractor import extract_key_frames
 from board_detector  import predictions_to_board, extract_calibration, detect_orientation
-from move_detector   import boards_to_move, init_chess_board
+from move_detector   import boards_to_move, init_chess_board, board_from_chess
 from analyzer        import analyze_game
 import chess
 
@@ -105,7 +105,6 @@ async def analyze_video(video: UploadFile = File(...)):
 
         chess_board     = init_chess_board()
         moves_san       = []
-        prev_state      = None
         last_move_frame = -999
         last_move_obj   = None
         MIN_MOVE_GAP    = 1
@@ -113,31 +112,26 @@ async def analyze_video(video: UploadFile = File(...)):
         for idx, state in enumerate(board_states):
             if state is None:
                 continue
-            if prev_state is None:
-                prev_state = state
-                continue
             if idx - last_move_frame < MIN_MOVE_GAP:
-                prev_state = state
                 continue
 
-            move = boards_to_move(prev_state, state, chess_board)
+            # Use the confirmed chess board state as ground truth "previous"
+            # instead of Gemini's noisy prior output — prevents error accumulation.
+            known_state = board_from_chess(chess_board)
+            move = boards_to_move(known_state, state, chess_board)
             if move and move in chess_board.legal_moves:
                 if (last_move_obj is not None and
                         move.from_square == last_move_obj.to_square and
                         move.to_square   == last_move_obj.from_square):
-                    prev_state = state
                     continue
                 san = chess_board.san(move)
                 if moves_san and san == moves_san[-1]:
-                    prev_state = state
                     continue
                 moves_san.append(san)
                 chess_board.push(move)
                 last_move_frame = idx
                 last_move_obj   = move
                 print(f"[boardflow] frame {idx}: {san}")
-
-            prev_state = state
 
         print(f"[boardflow] detected {len(moves_san)} moves: {moves_san}")
 

@@ -64,6 +64,11 @@ def boards_to_move(prev: dict[str, str],
     # Score every legal move by how well its resulting position matches the
     # detected board. The -2 penalty in _board_match_score means wrong-square
     # detections hurt, so the correct move scores significantly higher.
+    #
+    # Also compute a "no move" baseline — if the detected board matches the
+    # current position better than any move does, nothing happened yet.
+    no_move_score = _board_match_score(curr_clean, chess_board)
+
     best_move  = None
     best_score = -9999
     for move in chess_board.legal_moves:
@@ -74,7 +79,8 @@ def boards_to_move(prev: dict[str, str],
             best_score = score
             best_move  = move
 
-    if best_move and best_score >= 10:
+    # Only accept the move if it scores clearly better than the no-move baseline
+    if best_move and best_score >= 10 and best_score > no_move_score:
         return best_move
 
     return None
@@ -126,5 +132,16 @@ def _board_match_score(board_dict: dict[str, str], chess_board: chess.Board) -> 
             pass
     return score
 
+
 def init_chess_board() -> chess.Board:
     return chess.Board()
+
+
+def board_from_chess(chess_board: chess.Board) -> dict[str, str]:
+    """Convert a chess.Board to {square_name: piece_symbol} dict (ground truth)."""
+    result = {}
+    for sq in chess.SQUARES:
+        piece = chess_board.piece_at(sq)
+        if piece:
+            result[chess.square_name(sq)] = piece.symbol()
+    return result
