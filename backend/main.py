@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from frame_extractor import extract_key_frames
 from board_detector  import predictions_to_board
 from move_detector   import boards_to_move, init_chess_board
+from board_detector  import detect_orientation
 from analyzer        import analyze_game
 import chess
 
@@ -51,6 +52,7 @@ async def serve_frontend():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
+
 @app.post("/api/analyze")
 async def analyze_video(video: UploadFile = File(...)):
     suffix = Path(video.filename).suffix if video.filename else ".mp4"
@@ -67,6 +69,8 @@ async def analyze_video(video: UploadFile = File(...)):
         print(f"[boardflow] {len(frames)} frames, model={ROBOFLOW_MODEL_ID}")
 
         board_states = []
+        white_at_bottom = True  # default; will be updated from first reliable frame
+        orientation_locked = False
         for frame in frames:
             try:
                 raw_preds = client.infer(frame.image_np, model_id=ROBOFLOW_MODEL_ID).get("predictions", [])
@@ -74,12 +78,20 @@ async def analyze_video(video: UploadFile = File(...)):
                     classes = [p["class"] for p in raw_preds]
                     print(f"[boardflow] frame 0: {len(raw_preds)} pieces, classes={classes[:6]}")
                 h_px, w_px = frame.image_np.shape[:2]
-                board = predictions_to_board(raw_preds, white_at_bottom=True, image_width=w_px, image_height=h_px)
+                board = predictions_to_board(raw_preds, white_at_bottom=white_at_bottom, image_width=w_px, image_height=h_px)
+                # Detect orientation from first reliable frame
+                if board and not orientation_locked:
+                    white_at_bottom = detect_orientation(board)
+                    orientation_locked = True
+                    print(f"[boardflow] orientation detected: white_at_bottom={white_at_bottom}")
+                    # Re-parse this frame with correct orientation
+                    board = predictions_to_board(raw_preds, white_at_bottom=white_at_bottom, image_width=w_px, image_height=h_px)
                 board_states.append(board)
             except Exception as e:
                 print(f"[boardflow] frame {frame.index} failed: {e}")
                 board_states.append(None)
 
+        # Diagnostic: how many unique board states did we get?
         unique = len({str(sorted(s.items())) for s in board_states if s})
         print(f"[boardflow] {unique} unique board states from {len(board_states)} frames")
 
@@ -88,7 +100,7 @@ async def analyze_video(video: UploadFile = File(...)):
         prev_state      = None
         last_move_frame = -999
         last_move_obj   = None
-        MIN_MOVE_GAP    = 2
+        MIN_MOVE_GAP    = 3
 
         for idx, state in enumerate(board_states):
             if state is None:

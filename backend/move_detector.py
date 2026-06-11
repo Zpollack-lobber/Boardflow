@@ -74,7 +74,7 @@ def boards_to_move(prev: dict[str, str],
             best_score = score
             best_move  = move
 
-    if best_move and best_score >= 5:
+    if best_move and best_score >= 10:
         return best_move
 
     return None
@@ -105,15 +105,21 @@ def _try_move(from_sq_str: str, to_sq_str: str,
 
 def _board_match_score(board_dict: dict[str, str], chess_board: chess.Board) -> int:
     """
-    Count squares where the detected board and chess.Board both have a piece
-    (occupancy-only — ignores piece type to tolerate coordinate mapping errors).
+    Score how well the detected board matches the chess.Board position.
+    +1 for a square that has any piece in both detected and actual.
+    +2 bonus if the piece symbol also matches (correct type + color).
+    This makes Strategy 5 strongly prefer moves that result in the right pieces
+    on the right squares, not just occupied squares.
     """
     score = 0
-    for sq_name in board_dict:
+    for sq_name, detected_sym in board_dict.items():
         try:
             sq = chess.parse_square(sq_name)
-            if chess_board.piece_at(sq) is not None:
-                score += 1
+            piece = chess_board.piece_at(sq)
+            if piece is not None:
+                score += 1  # occupancy match
+                if piece.symbol() == detected_sym:
+                    score += 2  # piece type + color match bonus
         except Exception:
             pass
     return score
