@@ -115,18 +115,21 @@ async def analyze_video(video: UploadFile = File(...)):
             if idx - last_move_frame < MIN_MOVE_GAP:
                 continue
 
-            # Use the confirmed chess board state as ground truth "previous"
-            # instead of Gemini's noisy prior output — prevents error accumulation.
-            known_state = board_from_chess(chess_board)
-            move = boards_to_move(known_state, state, chess_board)
-            if move and move in chess_board.legal_moves:
+            # Multi-move recovery: a single frame may contain several moves
+            # (e.g. fast play captured at 2fps). Keep applying legal moves
+            # against the confirmed chess board until no more are found.
+            for _ in range(6):
+                known_state = board_from_chess(chess_board)
+                move = boards_to_move(known_state, state, chess_board)
+                if not move or move not in chess_board.legal_moves:
+                    break
                 if (last_move_obj is not None and
                         move.from_square == last_move_obj.to_square and
                         move.to_square   == last_move_obj.from_square):
-                    continue
+                    break
                 san = chess_board.san(move)
                 if moves_san and san == moves_san[-1]:
-                    continue
+                    break
                 moves_san.append(san)
                 chess_board.push(move)
                 last_move_frame = idx
