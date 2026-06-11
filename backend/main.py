@@ -124,8 +124,10 @@ async def analyze_video(video: UploadFile = File(...)):
                     image_width=frame.image_np.shape[1],
                     image_height=frame.image_np.shape[0],
                 )
-                inference_cache[frame.index] = board
-                board_states.append(board)
+                  if frame.index <= 2:
+                    print(f"[boardflow] frame {frame.index} board state: {board}")
+                  inference_cache[frame.index] = board
+                  board_states.append(board)
 
             except Exception as e:
                 print(f"[boardflow] frame {frame.index} failed after all retries: {e}")
