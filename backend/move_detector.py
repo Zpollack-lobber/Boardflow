@@ -114,13 +114,12 @@ def _try_move(from_sq_str: str, to_sq_str: str,
 
 
 def _board_match_score(board_dict: dict[str, str], chess_board: chess.Board) -> int:
-    """Count how many squares in board_dict match the chess.Board position."""
+    """Count how many occupied squares in board_dict match the chess.Board position."""
     score = 0
-    for sq_name, sym in board_dict.items():
+    for sq_name in board_dict.keys():
         try:
             sq = chess.parse_square(sq_name)
-            piece = chess_board.piece_at(sq)
-            if piece and piece.symbol() == sym:
+            if chess_board.piece_at(sq) is not None:
                 score += 1
         except Exception:
             pass
