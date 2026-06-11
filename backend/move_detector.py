@@ -83,7 +83,7 @@ def boards_to_move(prev: dict[str, str],
             best_score = score
             best_move  = move
 
-    min_threshold = max(6, len(curr_clean) * 0.75)
+    min_threshold = max(4, len(curr_clean) * 0.50)
     if best_score >= min_threshold:
         return best_move
 

@@ -76,28 +76,15 @@ def predictions_to_board(predictions: list[dict],
     Returns  { square: piece_symbol }  e.g. {"e1": "K", "d1": "Q", ...}
     Returns None if fewer than 4 pieces are detected (unreliable frame).
     """
-    # Use the 'board' detection bbox to restrict pieces to the actual board area
-    board_bbox = _get_board_bbox(predictions)
-
     pieces = []
     for p in predictions:
         sym = _normalize(p.get("class", ""))
         if not sym:
             continue
-        cx, cy = p["x"], p["y"]
-        # If we know where the board is, discard pieces outside it
-        if board_bbox:
-            x0, y0, x1, y1 = board_bbox
-            # Allow a small margin (10% of board size) for edge pieces
-            margin_x = (x1 - x0) * 0.10
-            margin_y = (y1 - y0) * 0.10
-            if not (x0 - margin_x <= cx <= x1 + margin_x and
-                    y0 - margin_y <= cy <= y1 + margin_y):
-                continue
         pieces.append({
             "sym":  sym,
-            "cx":   cx,
-            "cy":   cy,
+            "cx":   p["x"],
+            "cy":   p["y"],
             "conf": p.get("confidence", 1.0),
         })
 
