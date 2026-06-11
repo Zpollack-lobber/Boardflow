@@ -59,7 +59,7 @@ async def analyze_video(video: UploadFile = File(...)):
         tmp.write(await video.read())
         tmp_path = tmp.name
     try:
-        frames = extract_key_frames(tmp_path, sample_fps=2.0, max_frames=100, change_threshold=0.02)
+        frames = extract_key_frames(tmp_path, sample_fps=2.0, max_frames=200, change_threshold=0.005)
         if not frames:
             raise HTTPException(status_code=422, detail="Could not extract frames from video.")
 
@@ -79,10 +79,12 @@ async def analyze_video(video: UploadFile = File(...)):
                     images={"image": frame.image_np},
                     use_cache=False,
                 )
+                # Workflow returns board_state_json: {"e1": "white_king", "g4": "black_bishop", ...}
                 raw = result[0].get("board_state_json", {}) if result else {}
                 if isinstance(raw, str):
                     import json as _json
                     raw = _json.loads(raw)
+                # Normalise to python-chess symbols: "white_king" -> "K", "black_pawn" -> "p"
                 PIECE_MAP = {
                     "white_king": "K", "white_queen": "Q", "white_rook": "R",
                     "white_bishop": "B", "white_knight": "N", "white_pawn": "P",
@@ -90,8 +92,8 @@ async def analyze_video(video: UploadFile = File(...)):
                     "black_bishop": "b", "black_knight": "n", "black_pawn": "p",
                 }
                 board = {sq: PIECE_MAP[piece] for sq, piece in raw.items() if piece in PIECE_MAP}
-                if frame.index == 0:
-                    print(f"[boardflow] frame 0 board_state: {board}")
+                piece_count = len(board)
+                print(f"[boardflow] frame {frame.index} pieces={piece_count} board={dict(sorted(board.items()))}")
                 board_states.append(board if board else None)
             except Exception as e:
                 print(f"[boardflow] frame {frame.index} failed: {e}")
