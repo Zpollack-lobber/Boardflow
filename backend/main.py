@@ -93,7 +93,8 @@ def _run_webrtc_session(tmp_path: str) -> list[dict]:
     source = VideoFileSource(tmp_path, realtime_processing=False)
     config = StreamConfig(
         stream_output=[],
-        data_output=["predictions", "vision_events_error_status", "vision_events_message"],
+        data_output=["predictions", "vision_events_error_status", "vision_events_message",
+                     "baseball_count"],
         requested_plan="webrtc-gpu-medium",
         requested_region="us",
     )
@@ -117,14 +118,11 @@ def _run_webrtc_session(tmp_path: str) -> list[dict]:
 
         frame_count[0] += 1
 
-        # Log first 3 frames always, plus every frame that has a message
-        if frame_count[0] <= 3 or msg:
-            print(f"[boardflow] frame {fid}: msg={repr(msg)}  err={repr(err)}  "
-                  f"preds={len(preds) if isinstance(preds, list) else repr(preds)}")
-        if frame_count[0] <= 2:
+        # Log first 5 frames always, plus every frame that has a message
+        if frame_count[0] <= 5 or msg:
             safe_data = {k: v for k, v in data.items() if k not in ("output_image",)}
-            print(f"[boardflow] frame {fid} full payload: "
-                  f"{json.dumps(safe_data, default=str)[:800]}")
+            print(f"[boardflow] frame {fid} ALL KEYS: {list(safe_data.keys())}")
+            print(f"[boardflow] frame {fid} FULL: {json.dumps(safe_data, default=str)[:1200]}")
 
         frame_data.append({
             "frame_id":    fid,
