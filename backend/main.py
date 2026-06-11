@@ -80,7 +80,7 @@ def _fen_to_board_dict(fen_placement: str) -> dict[str, str] | None:
 
 
 def _infer_with_retry(image_np, prompt, max_retries=3):
-    """Call Qwen VL via direct HTTP API."""
+    """Call Qwen VL via the workflow endpoint."""
     import requests, cv2, base64
     _, buf = cv2.imencode(".jpg", image_np)
     b64 = base64.b64encode(buf).decode("utf-8")
@@ -89,11 +89,15 @@ def _infer_with_retry(image_np, prompt, max_retries=3):
     for attempt in range(max_retries):
         try:
             resp = requests.post(
-                f"https://serverless.roboflow.com/{QWEN_MODEL_ID}",
-                params={"api_key": ROBOFLOW_API_KEY},
+                "https://serverless.roboflow.com/zachs-workspace-cnn1l/workflows/qwen-vl",
+                headers={"Content-Type": "application/json"},
                 json={
-                    "image": {"type": "base64", "value": b64},
-                    "prompt": prompt,
+                    "api_key": ROBOFLOW_API_KEY,
+                    "inputs": {
+                        "image": {"type": "base64", "value": b64},
+                        "prompt": prompt,
+                        "model_version": "Qwen 3.5 VL 2B",
+                    },
                 },
                 timeout=30,
             )
