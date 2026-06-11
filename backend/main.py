@@ -1,24 +1,26 @@
 """
-main.py — Boardflow FastAPI server
+main.py — Boardflow FastAPI server (WebRTC Workflow Edition)
 """
-import os, sys, time, tempfile
+import os, sys, re, json, time, tempfile
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).parent))
-from frame_extractor import extract_key_frames
-from board_detector  import predictions_to_board, detect_orientation
-from move_detector   import boards_to_move, init_chess_board
-from analyzer        import analyze_game
+from move_detector import init_chess_board
+from analyzer import analyze_game
 import chess
 
-ROBOFLOW_API_KEY  = os.environ.get("ROBOFLOW_API_KEY",  "sc2UeMDMoHAn22SEJbHv")
-ROBOFLOW_MODEL_ID = os.environ.get("ROBOFLOW_MODEL_ID", "chessbot-v2/1")
+ROBOFLOW_API_KEY   = os.environ.get("ROBOFLOW_API_KEY",   "sc2UeMDMoHAn22SEJbHv")
+ROBOFLOW_WORKSPACE = os.environ.get("ROBOFLOW_WORKSPACE", "zachs-workspace-cnn1l")
+ROBOFLOW_WORKFLOW  = os.environ.get("ROBOFLOW_WORKFLOW",  "soccer-ball-video-detector-1781110679341")
 
-app = FastAPI(title="Boardflow", version="1.0")
+app = FastAPI(title="Boardflow", version="2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
+
+_executor = ThreadPoolExecutor(max_workers=2)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -29,22 +31,112 @@ async def serve_frontend():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
-def _infer_with_retry(client, image_np, model_id, max_retries=3):
-    last_exc = None
-    for attempt in range(max_retries):
-        try:
-            result = client.infer(image_np, model_id=model_id)
-            return result.get("predictions", [])
-        except Exception as e:
-            last_exc = e
-            err_str = str(e)
-            if "524" in err_str or "520" in err_str or "timeout" in err_str.lower() or "connection" in err_str.lower():
-                wait = 2 ** attempt
-                print(f"[boardflow] inference attempt {attempt+1}/{max_retries} failed (retrying in {wait}s): {err_str[:120]}")
-                time.sleep(wait)
-            else:
-                raise
-    raise last_exc
+def _parse_uci_from_message(msg) -> str | None:
+    """
+    Try to extract a UCI move string (e.g. 'e2e4') from vision_events_message.
+    Handles dicts, JSON strings, and plain text with UCI/coordinate patterns.
+    """
+    if not msg:
+        return None
+
+    # If it's already a dict
+    if isinstance(msg, dict):
+        for k in ("move", "uci", "from_to", "chess_move"):
+            if k in msg:
+                raw = str(msg[k]).replace("-", "").replace(" ", "").lower()
+                if re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', raw):
+                    return raw
+        from_sq = msg.get("from") or msg.get("from_square") or msg.get("source")
+        to_sq   = msg.get("to")   or msg.get("to_square")   or msg.get("target")
+        if from_sq and to_sq:
+            return str(from_sq).lower().strip() + str(to_sq).lower().strip()
+
+    # If it's a list, check first element
+    if isinstance(msg, list):
+        for item in msg:
+            result = _parse_uci_from_message(item)
+            if result:
+                return result
+        return None
+
+    s = str(msg).strip()
+
+    # Try JSON parse
+    try:
+        obj = json.loads(s)
+        return _parse_uci_from_message(obj)
+    except Exception:
+        pass
+
+    # Regex: e2e4 or e2-e4 or e2 to e4
+    m = re.search(r'\b([a-h][1-8])[\s\-_→to]*([a-h][1-8])\b', s, re.IGNORECASE)
+    if m:
+        return m.group(1).lower() + m.group(2).lower()
+
+    return None
+
+
+def _run_webrtc_session(tmp_path: str) -> list[dict]:
+    """
+    Stream a video file through the Roboflow WebRTC workflow.
+    Returns a list of per-frame dicts; frames without events are included for
+    debugging but moves are only extracted from frames where message is set.
+    """
+    from inference_sdk import InferenceHTTPClient
+    from inference_sdk.webrtc import VideoFileSource, StreamConfig, VideoMetadata
+
+    client = InferenceHTTPClient.init(
+        api_url="https://serverless.roboflow.com",
+        api_key=ROBOFLOW_API_KEY
+    )
+
+    source = VideoFileSource(tmp_path, realtime_processing=False)
+    config = StreamConfig(
+        stream_output=[],
+        data_output=["predictions", "vision_events_error_status", "vision_events_message"],
+        requested_plan="webrtc-gpu-medium",
+        requested_region="us",
+    )
+    session = client.webrtc.stream(
+        source=source,
+        workflow=ROBOFLOW_WORKFLOW,
+        workspace=ROBOFLOW_WORKSPACE,
+        image_input="image",
+        config=config
+    )
+
+    frame_data = []
+    frame_count = [0]
+
+    @session.on_data()
+    def on_data(data: dict, metadata: VideoMetadata):
+        fid = metadata.frame_id
+        msg  = data.get("vision_events_message")
+        err  = data.get("vision_events_error_status")
+        preds = data.get("predictions")
+
+        frame_count[0] += 1
+
+        # Log first 3 frames always, plus every frame that has a message
+        if frame_count[0] <= 3 or msg:
+            print(f"[boardflow] frame {fid}: msg={repr(msg)}  err={repr(err)}  "
+                  f"preds={len(preds) if isinstance(preds, list) else repr(preds)}")
+        if frame_count[0] <= 2:
+            safe_data = {k: v for k, v in data.items() if k not in ("output_image",)}
+            print(f"[boardflow] frame {fid} full payload: "
+                  f"{json.dumps(safe_data, default=str)[:800]}")
+
+        frame_data.append({
+            "frame_id":    fid,
+            "message":     msg,
+            "error":       err,
+            "predictions": preds,
+        })
+
+    session.run()
+    event_frames = sum(1 for f in frame_data if f["message"])
+    print(f"[boardflow] WebRTC done: {frame_count[0]} frames, {event_frames} with events")
+    return frame_data
 
 
 @app.post("/api/analyze")
@@ -54,105 +146,72 @@ async def analyze_video(video: UploadFile = File(...)):
         tmp.write(await video.read())
         tmp_path = tmp.name
     try:
-        frames = extract_key_frames(
-            tmp_path, sample_fps=2.0, max_frames=200, change_threshold=0.005
-        )
-        if not frames:
-            raise HTTPException(status_code=422, detail="Could not extract frames from video.")
-        from inference_sdk import InferenceHTTPClient
-        client = InferenceHTTPClient(
-            api_url="https://serverless.roboflow.com",
-            api_key=ROBOFLOW_API_KEY,
-        )
-        print(f"[boardflow] extracted {len(frames)} frames, model={ROBOFLOW_MODEL_ID}")
+        import asyncio
+        loop = asyncio.get_event_loop()
 
-        inference_cache = {}
-        failed_frames = []
-        board_states = []
-        for frame in frames:
-            if frame.index in inference_cache:
-                board_states.append(inference_cache[frame.index])
-                continue
-            try:
-                raw_preds = _infer_with_retry(client, frame.image_np, ROBOFLOW_MODEL_ID)
-                if frame.index == 0:
-                    classes_seen = [p["class"] for p in raw_preds]
-                    print(f"[boardflow] frame 0: {len(raw_preds)} preds, classes={classes_seen[:6]}")
-                preds = [
-                    {
-                        "class": p["class"],
-                        "x": p["x"], "y": p["y"],
-                        "width": p["width"], "height": p["height"],
-                        "confidence": p.get("confidence", 1.0),
-                    }
-                    for p in raw_preds
-                ]
-                h_px, w_px = frame.image_np.shape[:2]
-                board = predictions_to_board(
-                    preds,
-                    white_at_bottom=True,
-                    image_width=w_px,
-                    image_height=h_px,
-                )
-                inference_cache[frame.index] = board
-                board_states.append(board)
-            except Exception as e:
-                print(f"[boardflow] frame {frame.index} failed: {e}")
-                failed_frames.append(frame.index)
-                inference_cache[frame.index] = None
-                board_states.append(None)
+        # ── Stream video through Roboflow WebRTC workflow ─────────────────────
+        frame_data = await loop.run_in_executor(_executor, _run_webrtc_session, tmp_path)
 
-        if failed_frames:
-            print(f"[boardflow] {len(failed_frames)} frames failed: {failed_frames}")
+        if not frame_data:
+            raise HTTPException(status_code=422, detail="No frames processed from video.")
 
+        # ── Extract and validate moves from vision_events_message ─────────────
         chess_board = init_chess_board()
-        moves_san = []
-        prev_state = None
-        last_move_frame = -999
-        last_move_obj = None
-        MIN_MOVE_GAP = 2
+        moves_san   = []
 
-        for idx, state in enumerate(board_states):
-            if state is None:
-                continue
-            if prev_state is None:
-                prev_state = state
+        for fd in frame_data:
+            msg = fd["message"]
+            if not msg:
                 continue
 
-            if idx - last_move_frame < MIN_MOVE_GAP:
-                prev_state = state
+            uci = _parse_uci_from_message(msg)
+            if not uci:
+                print(f"[boardflow] unparseable message: {repr(msg)}")
                 continue
 
-            move = boards_to_move(prev_state, state, chess_board)
-            if move and move in chess_board.legal_moves:
-                san = chess_board.san(move)
-                if moves_san and san == moves_san[-1]:
-                    prev_state = state
+            try:
+                move = chess.Move.from_uci(uci)
+            except Exception as e:
+                print(f"[boardflow] bad UCI '{uci}': {e}")
+                continue
+
+            if move not in chess_board.legal_moves:
+                # Try queen promotion (pawn reaching last rank)
+                promo = chess.Move.from_uci(uci + "q") if len(uci) == 4 else None
+                if promo and promo in chess_board.legal_moves:
+                    move = promo
+                else:
+                    print(f"[boardflow] '{uci}' illegal at move {len(moves_san)+1} "
+                          f"(fen: {chess_board.fen()[:40]})")
                     continue
-                if last_move_obj is not None:
-                    if (move.from_square == last_move_obj.to_square and
-                            move.to_square == last_move_obj.from_square):
-                        prev_state = state
-                        continue
-                moves_san.append(san)
-                chess_board.push(move)
-                last_move_frame = idx
-                last_move_obj = move
-                print(f"[boardflow] frame {idx}: {san}")
 
-            prev_state = state
+            san = chess_board.san(move)
+            if moves_san and san == moves_san[-1]:
+                continue   # deduplicate consecutive identical events
 
-        print(f"[boardflow] detected {len(moves_san)} moves: {moves_san[:8]}")
+            moves_san.append(san)
+            chess_board.push(move)
+            print(f"[boardflow] move {len(moves_san)}: {san}  (msg={repr(msg)})")
+
+        print(f"[boardflow] total detected: {len(moves_san)} moves → {moves_san}")
 
         if not moves_san:
-            raise HTTPException(status_code=422, detail="No moves detected.")
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"No moves detected. Processed {len(frame_data)} frames; "
+                    f"{sum(1 for f in frame_data if f['message'])} had vision events. "
+                    "Check Railway logs for raw message format."
+                ),
+            )
 
         analysis = analyze_game(moves_san, depth=15)
         return JSONResponse(content=_serialize(analysis))
+
     finally:
         try:
             os.unlink(tmp_path)
-        except:
+        except Exception:
             pass
 
 
