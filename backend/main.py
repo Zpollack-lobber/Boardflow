@@ -54,11 +54,16 @@ async def analyze_video(video: UploadFile = File(...)):
         tmp.write(await video.read())
         tmp_path = tmp.name
     try:
-        frames = extract_key_frames(tmp_path, sample_fps=2.0, max_frames=200, change_threshold=0.005)
+        frames = extract_key_frames(
+            tmp_path, sample_fps=2.0, max_frames=200, change_threshold=0.005
+        )
         if not frames:
             raise HTTPException(status_code=422, detail="Could not extract frames from video.")
         from inference_sdk import InferenceHTTPClient
-        client = InferenceHTTPClient(api_url="https://serverless.roboflow.com", api_key=ROBOFLOW_API_KEY)
+        client = InferenceHTTPClient(
+            api_url="https://serverless.roboflow.com",
+            api_key=ROBOFLOW_API_KEY,
+        )
         print(f"[boardflow] extracted {len(frames)} frames, model={ROBOFLOW_MODEL_ID}")
 
         inference_cache = {}
@@ -72,6 +77,107 @@ async def analyze_video(video: UploadFile = File(...)):
                 raw_preds = _infer_with_retry(client, frame.image_np, ROBOFLOW_MODEL_ID)
                 if frame.index == 0:
                     classes_seen = [p["class"] for p in raw_preds]
-                    print(f"[boardflow] frame 0 predictions: {len(raw_preds)} pieces, classes={classes_seen[:6]}")
-                preds = [{"class": p["class"], "x": p["x"], "y": p["y"], "width": p["width"], "height": p["height"], "confidence": p.get("confidence", 1.0)} for p in raw_preds]
-                board = predictions_to_board(preds, white_at_bottom=True, image_width=frame.image_np.shape[1], image
+                    print(f"[boardflow] frame 0: {len(raw_preds)} preds, classes={classes_seen[:6]}")
+                preds = [
+                    {
+                        "class": p["class"],
+                        "x": p["x"], "y": p["y"],
+                        "width": p["width"], "height": p["height"],
+                        "confidence": p.get("confidence", 1.0),
+                    }
+                    for p in raw_preds
+                ]
+                h_px, w_px = frame.image_np.shape[:2]
+                board = predictions_to_board(
+                    preds,
+                    white_at_bottom=True,
+                    image_width=w_px,
+                    image_height=h_px,
+                )
+                inference_cache[frame.index] = board
+                board_states.append(board)
+            except Exception as e:
+                print(f"[boardflow] frame {frame.index} failed: {e}")
+                failed_frames.append(frame.index)
+                inference_cache[frame.index] = None
+                board_states.append(None)
+
+        if failed_frames:
+            print(f"[boardflow] {len(failed_frames)} frames failed: {failed_frames}")
+
+        chess_board = init_chess_board()
+        moves_san = []
+        prev_state = None
+        last_move_frame = -999
+        MIN_MOVE_GAP = 3  # at 2fps = 1.5s minimum per move
+
+        for idx, state in enumerate(board_states):
+            if state is None:
+                continue
+            if prev_state is None:
+                prev_state = state
+                continue
+
+            if idx - last_move_frame < MIN_MOVE_GAP:
+                prev_state = state
+                continue
+
+            move = boards_to_move(prev_state, state, chess_board)
+            if move and move in chess_board.legal_moves:
+                san = chess_board.san(move)
+                if moves_san and san == moves_san[-1]:
+                    prev_state = state
+                    continue
+                moves_san.append(san)
+                chess_board.push(move)
+                last_move_frame = idx
+                print(f"[boardflow] frame {idx}: {san}")
+
+            prev_state = state
+
+        print(f"[boardflow] detected {len(moves_san)} moves: {moves_san[:8]}")
+
+        if not moves_san:
+            raise HTTPException(status_code=422, detail="No moves detected.")
+
+        analysis = analyze_game(moves_san, depth=15)
+        return JSONResponse(content=_serialize(analysis))
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+
+
+def _serialize(analysis) -> dict:
+    return {
+        "opening":             analysis.opening_name,
+        "white_accuracy":      analysis.white_accuracy,
+        "black_accuracy":      analysis.black_accuracy,
+        "pgn":                 analysis.pgn,
+        "stockfish_available": analysis.stockfish_available,
+        "error":               analysis.error,
+        "moves": [
+            {
+                "move_number":    m.move_number,
+                "color":          m.color,
+                "san":            m.san,
+                "uci":            m.uci,
+                "fen_before":     m.fen_before,
+                "fen_after":      m.fen_after,
+                "eval_before":    m.eval_before,
+                "eval_after":     m.eval_after,
+                "best_move_san":  m.best_move_san,
+                "move_accuracy":  m.move_accuracy,
+                "classification": m.classification,
+                "is_check":       m.is_check,
+                "is_capture":     m.is_capture,
+            }
+            for m in analysis.moves
+        ],
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
