@@ -763,7 +763,7 @@ function initBoard(moves) {
       position: 'start',
       pieceTheme: function(piece) {
         const svg = PIECES[piece] || PIECES['wP'];
-        return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+        return 'data:image/svg+xml;base64,' + btoa(svg);
       },
     });
 
