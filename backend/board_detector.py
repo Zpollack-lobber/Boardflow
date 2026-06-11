@@ -16,6 +16,11 @@ from typing import Optional
 # ── Roboflow class labels → python-chess piece symbols ──────────────────────
 # Covers chess-pieces-mjzgj/1 (Roboflow 100) class names + common variants
 PIECE_SYMBOL: dict[str, str] = {
+    # chessbot-v2/1 class names (b-pawn, w-knight, etc.)
+    "b-king": "k",  "b-queen": "q",  "b-rook": "r",
+    "b-bishop": "b",  "b-knight": "n",  "b-pawn": "p",
+    "w-king": "K",  "w-queen": "Q",  "w-rook": "R",
+    "w-bishop": "B",  "w-knight": "N",  "w-pawn": "P",
     # chess-pieces-mjzgj/1 exact class names
     "white-king":   "K",  "white-queen":  "Q",  "white-rook":   "R",
     "white-bishop": "B",  "white-knight": "N",  "white-pawn":   "P",
