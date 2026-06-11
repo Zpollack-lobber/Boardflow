@@ -75,14 +75,19 @@ def boards_to_move(prev: dict[str, str],
         chess_board.push(move)
         score = _board_match_score(curr_clean, chess_board)
         chess_board.pop()
+        # Small bonus for captures and pawn moves — Gemini tends to report
+        # the post-capture square correctly even when it misses the source square.
+        moving_piece = chess_board.piece_at(move.from_square)
+        if chess_board.is_capture(move):
+            score += 2
+        elif moving_piece and moving_piece.piece_type == chess.PAWN:
+            score += 1
         if score > best_score:
             best_score = score
             best_move  = move
 
-    # Only accept the move if it scores clearly better than the no-move baseline.
-    # Require a margin of at least 3 to avoid accepting a move when the board
-    # already looks like the current position (prevents multi-move overshoot).
-    if best_move and best_score >= 10 and best_score > no_move_score + 3:
+    # Only accept the move if it scores better than the no-move baseline.
+    if best_move and best_score >= 10 and best_score > no_move_score:
         return best_move
 
     return None
