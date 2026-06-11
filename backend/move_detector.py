@@ -108,8 +108,8 @@ def _board_match_score(board_dict: dict[str, str], chess_board: chess.Board) -> 
     Score how well the detected board matches the chess.Board position.
     +1 for a square that has any piece in both detected and actual.
     +2 bonus if the piece symbol also matches (correct type + color).
-    This makes Strategy 5 strongly prefer moves that result in the right pieces
-    on the right squares, not just occupied squares.
+    -2 for a detected piece on a square the actual board says is empty
+         (penalises false detections and wrong-square CV errors).
     """
     score = 0
     for sq_name, detected_sym in board_dict.items():
@@ -120,10 +120,11 @@ def _board_match_score(board_dict: dict[str, str], chess_board: chess.Board) -> 
                 score += 1  # occupancy match
                 if piece.symbol() == detected_sym:
                     score += 2  # piece type + color match bonus
+            else:
+                score -= 2  # detected piece where board says empty → penalise
         except Exception:
             pass
     return score
-
 
 def init_chess_board() -> chess.Board:
     return chess.Board()
