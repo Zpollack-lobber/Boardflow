@@ -63,29 +63,36 @@ async def analyze_video(video: UploadFile = File(...)):
         if not frames:
             raise HTTPException(status_code=422, detail="Could not extract frames from video.")
 
-        from inference_sdk import InferenceHTTPClient
+       from inference_sdk import InferenceHTTPClient
         client = InferenceHTTPClient(api_url="https://serverless.roboflow.com", api_key=ROBOFLOW_API_KEY)
-        print(f"[boardflow] {len(frames)} frames, model={ROBOFLOW_MODEL_ID}")
+        print(f"[boardflow] {len(frames)} frames, workflow=custom-workflow")
+
+        WORKSPACE_NAME = "zachs-workspace-cnn1l"
+        WORKFLOW_ID    = "custom-workflow"
 
         board_states = []
-        white_at_bottom = True  # default; will be updated from first reliable frame
-        orientation_locked = False
         for frame in frames:
             try:
-                raw_preds = client.infer(frame.image_np, model_id=ROBOFLOW_MODEL_ID).get("predictions", [])
+                result = client.run_workflow(
+                    workspace_name=WORKSPACE_NAME,
+                    workflow_id=WORKFLOW_ID,
+                    images={"image": frame.image_np},
+                    use_cache=False,
+                )
+                raw = result[0].get("board_state_json", {}) if result else {}
+                if isinstance(raw, str):
+                    import json as _json
+                    raw = _json.loads(raw)
+                PIECE_MAP = {
+                    "white_king": "K", "white_queen": "Q", "white_rook": "R",
+                    "white_bishop": "B", "white_knight": "N", "white_pawn": "P",
+                    "black_king": "k", "black_queen": "q", "black_rook": "r",
+                    "black_bishop": "b", "black_knight": "n", "black_pawn": "p",
+                }
+                board = {sq: PIECE_MAP[piece] for sq, piece in raw.items() if piece in PIECE_MAP}
                 if frame.index == 0:
-                    classes = [p["class"] for p in raw_preds]
-                    print(f"[boardflow] frame 0: {len(raw_preds)} pieces, classes={classes[:6]}")
-                h_px, w_px = frame.image_np.shape[:2]
-                board = predictions_to_board(raw_preds, white_at_bottom=white_at_bottom, image_width=w_px, image_height=h_px)
-                # Detect orientation from first reliable frame
-                if board and not orientation_locked:
-                    white_at_bottom = detect_orientation(board)
-                    orientation_locked = True
-                    print(f"[boardflow] orientation detected: white_at_bottom={white_at_bottom}")
-                    # Re-parse this frame with correct orientation
-                    board = predictions_to_board(raw_preds, white_at_bottom=white_at_bottom, image_width=w_px, image_height=h_px)
-                board_states.append(board)
+                    print(f"[boardflow] frame 0 board_state: {board}")
+                board_states.append(board if board else None)
             except Exception as e:
                 print(f"[boardflow] frame {frame.index} failed: {e}")
                 board_states.append(None)
