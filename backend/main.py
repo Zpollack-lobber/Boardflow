@@ -1,29 +1,22 @@
 """
-main.py — Boardflow FastAPI server (Qwen VL edition)
+main.py — Boardflow FastAPI server
 """
-import os, sys, re, time, tempfile
+import os, sys, time, tempfile
 from pathlib import Path
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).parent))
 from frame_extractor import extract_key_frames
-from move_detector   import init_chess_board
+from board_detector  import predictions_to_board
+from move_detector   import boards_to_move, init_chess_board
 from analyzer        import analyze_game
 import chess
 
-ROBOFLOW_API_KEY = os.environ.get("ROBOFLOW_API_KEY", "sc2UeMDMoHAn22SEJbHv")
-QWEN_MODEL_ID    = "qwen-vl"
+ROBOFLOW_API_KEY  = os.environ.get("ROBOFLOW_API_KEY",  "sc2UeMDMoHAn22SEJbHv")
+ROBOFLOW_MODEL_ID = os.environ.get("ROBOFLOW_MODEL_ID", "chessbot-v2/1")
 
-# Prompt asking Qwen VL to output only the FEN piece-placement string
-FEN_PROMPT = (
-    "This is a screenshot of a chess game. "
-    "Output ONLY the FEN piece placement string for the current position "
-    "(the part before the first space, e.g. rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR). "
-    "Do not explain. Do not add anything else. Just the FEN string."
-)
-
-app = FastAPI(title="Boardflow", version="3.0")
+app = FastAPI(title="Boardflow", version="1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
 
@@ -36,77 +29,16 @@ async def serve_frontend():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
-def _extract_fen(raw_response) -> str | None:
-    """
-    Pull the FEN placement string out of Qwen VL's response.
-    Handles dict responses with various keys, or plain strings.
-    """
-    text = None
-    if isinstance(raw_response, dict):
-        # Try common response keys
-        for k in ("response", "text", "result", "output", "content", "answer"):
-            if k in raw_response:
-                text = str(raw_response[k])
-                break
-        if text is None:
-            text = str(raw_response)
-    elif isinstance(raw_response, str):
-        text = raw_response
-    else:
-        text = str(raw_response)
-
-    if not text:
-        return None
-
-    # Look for a FEN-like pattern: rows separated by / with pieces and numbers
-    m = re.search(r'([rnbqkpRNBQKP1-8]{1,8}(?:/[rnbqkpRNBQKP1-8]{1,8}){7})', text)
-    if m:
-        return m.group(1)
-    return None
-
-
-def _fen_to_board_dict(fen_placement: str) -> dict[str, str] | None:
-    """Convert FEN placement string to {square: piece_symbol} dict via python-chess."""
-    try:
-        board = chess.Board(fen_placement + " w - - 0 1")
-        result = {}
-        for sq in chess.SQUARES:
-            piece = board.piece_at(sq)
-            if piece:
-                result[chess.square_name(sq)] = piece.symbol()
-        return result
-    except Exception:
-        return None
-
-
-def _infer_with_retry(image_np, prompt, max_retries=3):
-    """Call Qwen VL via the workflow endpoint."""
-    import requests, cv2, base64
-    _, buf = cv2.imencode(".jpg", image_np)
-    b64 = base64.b64encode(buf).decode("utf-8")
-
+def _infer_with_retry(client, image_np, model_id, max_retries=3):
     last_exc = None
     for attempt in range(max_retries):
         try:
-            resp = requests.post(
-                "https://serverless.roboflow.com/zachs-workspace-cnn1l/workflows/qwen-vl",
-                headers={"Content-Type": "application/json"},
-                json={
-                    "api_key": ROBOFLOW_API_KEY,
-                    "inputs": {
-                        "image": {"type": "base64", "value": b64},
-                        "prompt": prompt,
-                        "model_version": "Qwen 3.5 VL 2B",
-                    },
-                },
-                timeout=30,
-            )
-            resp.raise_for_status()
-            return resp.json()
+            result = client.infer(image_np, model_id=model_id)
+            return result.get("predictions", [])
         except Exception as e:
             last_exc = e
             err_str = str(e)
-            if any(code in err_str for code in ["524", "520", "timeout", "connection"]):
+            if any(c in err_str for c in ["524", "520", "timeout", "connection"]):
                 wait = 2 ** attempt
                 print(f"[boardflow] attempt {attempt+1}/{max_retries} failed, retrying in {wait}s: {err_str[:120]}")
                 time.sleep(wait)
@@ -126,26 +58,23 @@ async def analyze_video(video: UploadFile = File(...)):
         if not frames:
             raise HTTPException(status_code=422, detail="Could not extract frames from video.")
 
-        print(f"[boardflow] {len(frames)} frames → Qwen VL")
+        from inference_sdk import InferenceHTTPClient
+        client = InferenceHTTPClient(api_url="https://serverless.roboflow.com", api_key=ROBOFLOW_API_KEY)
+        print(f"[boardflow] {len(frames)} frames, model={ROBOFLOW_MODEL_ID}")
 
-        # ── Get FEN for each frame ────────────────────────────────────────────
-        fen_states = []
+        board_states = []
         for frame in frames:
             try:
-                raw = _infer_with_retry(frame.image_np, FEN_PROMPT)
+                raw_preds = _infer_with_retry(client, frame.image_np, ROBOFLOW_MODEL_ID)
                 if frame.index == 0:
-                    print(f"[boardflow] frame 0 raw response: {repr(raw)[:300]}")
-                fen = _extract_fen(raw)
-                board_dict = _fen_to_board_dict(fen) if fen else None
-                if frame.index == 0:
-                    print(f"[boardflow] frame 0 FEN: {fen}  board_squares: {len(board_dict) if board_dict else 0}")
-                fen_states.append(board_dict)
+                    classes = [p["class"] for p in raw_preds]
+                    print(f"[boardflow] frame 0: {len(raw_preds)} pieces, classes={classes[:6]}")
+                h_px, w_px = frame.image_np.shape[:2]
+                board = predictions_to_board(raw_preds, white_at_bottom=True, image_width=w_px, image_height=h_px)
+                board_states.append(board)
             except Exception as e:
                 print(f"[boardflow] frame {frame.index} failed: {e}")
-                fen_states.append(None)
-
-        # ── Detect moves by diffing consecutive board states ──────────────────
-        from move_detector import boards_to_move
+                board_states.append(None)
 
         chess_board     = init_chess_board()
         moves_san       = []
@@ -154,7 +83,7 @@ async def analyze_video(video: UploadFile = File(...)):
         last_move_obj   = None
         MIN_MOVE_GAP    = 2
 
-        for idx, state in enumerate(fen_states):
+        for idx, state in enumerate(board_states):
             if state is None:
                 continue
             if prev_state is None:
@@ -171,12 +100,10 @@ async def analyze_video(video: UploadFile = File(...)):
                         move.to_square   == last_move_obj.from_square):
                     prev_state = state
                     continue
-
                 san = chess_board.san(move)
                 if moves_san and san == moves_san[-1]:
                     prev_state = state
                     continue
-
                 moves_san.append(san)
                 chess_board.push(move)
                 last_move_frame = idx
