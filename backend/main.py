@@ -1,26 +1,31 @@
 """
-main.py — Boardflow FastAPI server (WebRTC Workflow Edition)
+main.py — Boardflow FastAPI server (Qwen VL edition)
 """
-import os, sys, re, json, time, tempfile
+import os, sys, re, time, tempfile
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).parent))
-from move_detector import init_chess_board
-from analyzer import analyze_game
+from frame_extractor import extract_key_frames
+from move_detector   import init_chess_board
+from analyzer        import analyze_game
 import chess
 
-ROBOFLOW_API_KEY   = os.environ.get("ROBOFLOW_API_KEY",   "sc2UeMDMoHAn22SEJbHv")
-ROBOFLOW_WORKSPACE = os.environ.get("ROBOFLOW_WORKSPACE", "zachs-workspace-cnn1l")
-ROBOFLOW_WORKFLOW  = os.environ.get("ROBOFLOW_WORKFLOW",  "soccer-ball-video-detector-1781110679341")
+ROBOFLOW_API_KEY = os.environ.get("ROBOFLOW_API_KEY", "sc2UeMDMoHAn22SEJbHv")
+QWEN_MODEL_ID    = "qwen-vl"
 
-app = FastAPI(title="Boardflow", version="2.0")
+# Prompt asking Qwen VL to output only the FEN piece-placement string
+FEN_PROMPT = (
+    "This is a screenshot of a chess game. "
+    "Output ONLY the FEN piece placement string for the current position "
+    "(the part before the first space, e.g. rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR). "
+    "Do not explain. Do not add anything else. Just the FEN string."
+)
+
+app = FastAPI(title="Boardflow", version="3.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"
-
-_executor = ThreadPoolExecutor(max_workers=2)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -31,121 +36,65 @@ async def serve_frontend():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
-def _parse_uci_from_message(msg) -> str | None:
+def _extract_fen(raw_response) -> str | None:
     """
-    Try to extract a UCI move string (e.g. 'e2e4') from vision_events_message.
-    Handles dicts, JSON strings, and plain text with UCI/coordinate patterns.
+    Pull the FEN placement string out of Qwen VL's response.
+    Handles dict responses with various keys, or plain strings.
     """
-    if not msg:
+    text = None
+    if isinstance(raw_response, dict):
+        # Try common response keys
+        for k in ("response", "text", "result", "output", "content", "answer"):
+            if k in raw_response:
+                text = str(raw_response[k])
+                break
+        if text is None:
+            text = str(raw_response)
+    elif isinstance(raw_response, str):
+        text = raw_response
+    else:
+        text = str(raw_response)
+
+    if not text:
         return None
 
-    # If it's already a dict
-    if isinstance(msg, dict):
-        for k in ("move", "uci", "from_to", "chess_move"):
-            if k in msg:
-                raw = str(msg[k]).replace("-", "").replace(" ", "").lower()
-                if re.match(r'^[a-h][1-8][a-h][1-8][qrbn]?$', raw):
-                    return raw
-        from_sq = msg.get("from") or msg.get("from_square") or msg.get("source")
-        to_sq   = msg.get("to")   or msg.get("to_square")   or msg.get("target")
-        if from_sq and to_sq:
-            return str(from_sq).lower().strip() + str(to_sq).lower().strip()
-
-    # If it's a list, check first element
-    if isinstance(msg, list):
-        for item in msg:
-            result = _parse_uci_from_message(item)
-            if result:
-                return result
-        return None
-
-    s = str(msg).strip()
-
-    # Try JSON parse
-    try:
-        obj = json.loads(s)
-        return _parse_uci_from_message(obj)
-    except Exception:
-        pass
-
-    # Regex: e2e4 or e2-e4 or e2 to e4
-    m = re.search(r'\b([a-h][1-8])[\s\-_→to]*([a-h][1-8])\b', s, re.IGNORECASE)
+    # Look for a FEN-like pattern: rows separated by / with pieces and numbers
+    m = re.search(r'([rnbqkpRNBQKP1-8]{1,8}(?:/[rnbqkpRNBQKP1-8]{1,8}){7})', text)
     if m:
-        return m.group(1).lower() + m.group(2).lower()
-
+        return m.group(1)
     return None
 
 
-def _run_webrtc_session(tmp_path: str) -> list[dict]:
-    """
-    Stream a video file through the Roboflow WebRTC workflow.
-    Returns a list of per-frame dicts; frames without events are included for
-    debugging but moves are only extracted from frames where message is set.
-    """
-    from inference_sdk import InferenceHTTPClient
-    from inference_sdk.webrtc import VideoFileSource, StreamConfig, VideoMetadata
+def _fen_to_board_dict(fen_placement: str) -> dict[str, str] | None:
+    """Convert FEN placement string to {square: piece_symbol} dict via python-chess."""
+    try:
+        board = chess.Board(fen_placement + " w - - 0 1")
+        result = {}
+        for sq in chess.SQUARES:
+            piece = board.piece_at(sq)
+            if piece:
+                result[chess.square_name(sq)] = piece.symbol()
+        return result
+    except Exception:
+        return None
 
-    client = InferenceHTTPClient.init(
-        api_url="https://serverless.roboflow.com",
-        api_key=ROBOFLOW_API_KEY
-    )
 
-    source = VideoFileSource(tmp_path, realtime_processing=False)
-    config = StreamConfig(
-        stream_output=[],
-        data_output=["predictions", "vision_events_error_status", "vision_events_message",
-                     "ball_count"],
-        requested_plan="webrtc-gpu-medium",
-        requested_region="us",
-    )
-    session = client.webrtc.stream(
-        source=source,
-        workflow=ROBOFLOW_WORKFLOW,
-        workspace=ROBOFLOW_WORKSPACE,
-        image_input="image",
-        config=config
-    )
-
-    frame_data  = []
-    frame_count = [0]
-    last_count  = [None]
-
-    @session.on_data()
-    def on_data(data: dict, metadata: VideoMetadata):
-        fid        = metadata.frame_id
-        raw_preds  = data.get("predictions")
-        # WebRTC may return predictions as a dict or list — normalize to list
-        if isinstance(raw_preds, list):
-            preds = raw_preds
-        elif isinstance(raw_preds, dict):
-            preds = list(raw_preds.values()) if raw_preds else []
-        else:
-            preds = []
-        ball_count = data.get("ball_count")
-        err        = data.get("vision_events_error_status")
-
-        frame_count[0] += 1
-
-        # Only log when ball_count changes (a move was detected) or first frame
-        count_changed = (ball_count != last_count[0])
-        if frame_count[0] == 1:
-            print(f"[boardflow] first frame: ball_count={ball_count} preds={len(preds)} err={repr(err)}")
-            print(f"[boardflow] predictions type={type(preds).__name__} value={repr(preds)[:400]}")
-        if count_changed and ball_count is not None:
-            print(f"[boardflow] MOVE DETECTED frame {fid}: ball_count {last_count[0]} → {ball_count}  preds={len(preds)}")
-            last_count[0] = ball_count
-
-        frame_data.append({
-            "frame_id":    fid,
-            "ball_count":  ball_count,
-            "predictions": preds,
-            "move_event":  count_changed and ball_count is not None,
-        })
-
-    session.run()
-    move_frames = sum(1 for f in frame_data if f["move_event"])
-    print(f"[boardflow] WebRTC done: {frame_count[0]} frames, {move_frames} move events, final ball_count={last_count[0]}")
-    return frame_data
+def _infer_with_retry(client, image_np, prompt, max_retries=3):
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            result = client.infer(image_np, model_id=QWEN_MODEL_ID, prompt=prompt)
+            return result
+        except Exception as e:
+            last_exc = e
+            err_str = str(e)
+            if any(code in err_str for code in ["524", "520", "timeout", "connection"]):
+                wait = 2 ** attempt
+                print(f"[boardflow] attempt {attempt+1}/{max_retries} failed, retrying in {wait}s: {err_str[:120]}")
+                time.sleep(wait)
+            else:
+                raise
+    raise last_exc
 
 
 @app.post("/api/analyze")
@@ -155,67 +104,78 @@ async def analyze_video(video: UploadFile = File(...)):
         tmp.write(await video.read())
         tmp_path = tmp.name
     try:
-        import asyncio
-        loop = asyncio.get_event_loop()
+        frames = extract_key_frames(tmp_path, sample_fps=2.0, max_frames=200, change_threshold=0.005)
+        if not frames:
+            raise HTTPException(status_code=422, detail="Could not extract frames from video.")
 
-        # ── Stream video through Roboflow WebRTC workflow ─────────────────────
-        frame_data = await loop.run_in_executor(_executor, _run_webrtc_session, tmp_path)
+        from inference_sdk import InferenceHTTPClient
+        client = InferenceHTTPClient(api_url="https://serverless.roboflow.com", api_key=ROBOFLOW_API_KEY)
+        print(f"[boardflow] {len(frames)} frames → Qwen VL")
 
-        if not frame_data:
-            raise HTTPException(status_code=422, detail="No frames processed from video.")
+        # ── Get FEN for each frame ────────────────────────────────────────────
+        fen_states = []
+        for frame in frames:
+            try:
+                raw = _infer_with_retry(client, frame.image_np, FEN_PROMPT)
+                if frame.index == 0:
+                    print(f"[boardflow] frame 0 raw response: {repr(raw)[:300]}")
+                fen = _extract_fen(raw)
+                board_dict = _fen_to_board_dict(fen) if fen else None
+                if frame.index == 0:
+                    print(f"[boardflow] frame 0 FEN: {fen}  board_squares: {len(board_dict) if board_dict else 0}")
+                fen_states.append(board_dict)
+            except Exception as e:
+                print(f"[boardflow] frame {frame.index} failed: {e}")
+                fen_states.append(None)
 
-        # ── Extract moves: diff board states at ball_count change frames ────────
-        from board_detector import predictions_to_board
-        from move_detector  import boards_to_move
+        # ── Detect moves by diffing consecutive board states ──────────────────
+        from move_detector import boards_to_move
 
-        chess_board = init_chess_board()
-        moves_san   = []
-        prev_board  = None
+        chess_board     = init_chess_board()
+        moves_san       = []
+        prev_state      = None
+        last_move_frame = -999
+        last_move_obj   = None
+        MIN_MOVE_GAP    = 2
 
-        for fd in frame_data:
-            preds = fd["predictions"]
-            if not preds:
+        for idx, state in enumerate(fen_states):
+            if state is None:
+                continue
+            if prev_state is None:
+                prev_state = state
+                continue
+            if idx - last_move_frame < MIN_MOVE_GAP:
+                prev_state = state
                 continue
 
-            # Parse board state from this frame's predictions
-            curr_board = predictions_to_board(
-                preds,
-                white_at_bottom=True,
-                image_width=0,
-                image_height=0,
-            )
-            if curr_board is None:
-                continue
+            move = boards_to_move(prev_state, state, chess_board)
+            if move and move in chess_board.legal_moves:
+                if (last_move_obj is not None and
+                        move.from_square == last_move_obj.to_square and
+                        move.to_square   == last_move_obj.from_square):
+                    prev_state = state
+                    continue
 
-            # Only attempt move detection on frames where ball_count changed
-            if fd["move_event"] and prev_board is not None:
-                move = boards_to_move(prev_board, curr_board, chess_board)
-                if move and move in chess_board.legal_moves:
-                    san = chess_board.san(move)
-                    if not moves_san or san != moves_san[-1]:
-                        moves_san.append(san)
-                        chess_board.push(move)
-                        print(f"[boardflow] move {len(moves_san)}: {san}")
-                else:
-                    print(f"[boardflow] move_event but no legal move found at frame {fd['frame_id']}")
+                san = chess_board.san(move)
+                if moves_san and san == moves_san[-1]:
+                    prev_state = state
+                    continue
 
-            prev_board = curr_board
+                moves_san.append(san)
+                chess_board.push(move)
+                last_move_frame = idx
+                last_move_obj   = move
+                print(f"[boardflow] frame {idx}: {san}")
 
-        print(f"[boardflow] total detected: {len(moves_san)} moves → {moves_san}")
+            prev_state = state
+
+        print(f"[boardflow] detected {len(moves_san)} moves: {moves_san}")
 
         if not moves_san:
-            move_events = sum(1 for f in frame_data if f["move_event"])
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    f"No moves detected. Processed {len(frame_data)} frames, "
-                    f"{move_events} ball_count change events. Check Railway logs."
-                ),
-            )
+            raise HTTPException(status_code=422, detail="No moves detected.")
 
         analysis = analyze_game(moves_san, depth=15)
         return JSONResponse(content=_serialize(analysis))
-
     finally:
         try:
             os.unlink(tmp_path)
