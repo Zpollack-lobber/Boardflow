@@ -45,8 +45,23 @@ def boards_to_move(prev: dict[str, str],
                 if move:
                     return move
 
-   
+   # Strategy 4: best-match, but only when diff is small (noise has large diffs)
+    if len(disappeared) <= 2 and len(appeared) <= 2:
+        best_move  = None
+        best_score = -1
+        for move in chess_board.legal_moves:
+            tmp = chess_board.copy()
+            tmp.push(move)
+            score = _board_match_score(curr_clean, tmp)
+            if score > best_score:
+                best_score = score
+                best_move  = move
+        min_threshold = max(5, len(curr_clean) * 0.60)
+        if best_score >= min_threshold:
+            return best_move
+
     return None
+    
 
 
 def _try_move(from_sq_str: str, to_sq_str: str,
