@@ -124,7 +124,7 @@ def frames_are_different(a: np.ndarray, b: np.ndarray, threshold: float = 0.02) 
 def extract_key_frames(
     video_path: str,
     sample_fps: float = 2.0,
-    change_threshold: float = 0.03,
+    change_threshold: float = 0.01,
     max_frames: int = 200,
 ) -> list[ExtractedFrame]:
     """
