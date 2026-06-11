@@ -79,8 +79,10 @@ def boards_to_move(prev: dict[str, str],
             best_score = score
             best_move  = move
 
-    # Only accept the move if it scores clearly better than the no-move baseline
-    if best_move and best_score >= 10 and best_score > no_move_score:
+    # Only accept the move if it scores clearly better than the no-move baseline.
+    # Require a margin of at least 3 to avoid accepting a move when the board
+    # already looks like the current position (prevents multi-move overshoot).
+    if best_move and best_score >= 10 and best_score > no_move_score + 3:
         return best_move
 
     return None

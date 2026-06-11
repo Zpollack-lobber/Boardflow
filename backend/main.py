@@ -70,8 +70,14 @@ async def analyze_video(video: UploadFile = File(...)):
         WORKSPACE_NAME = "zachs-workspace-cnn1l"
         WORKFLOW_ID    = "custom-workflow"
 
-        board_states = []
-        for frame in frames:
+        PIECE_MAP = {
+            "white_king": "K", "white_queen": "Q", "white_rook": "R",
+            "white_bishop": "B", "white_knight": "N", "white_pawn": "P",
+            "black_king": "k", "black_queen": "q", "black_rook": "r",
+            "black_bishop": "b", "black_knight": "n", "black_pawn": "p",
+        }
+
+        def call_gemini(frame):
             try:
                 result = client.run_workflow(
                     workspace_name=WORKSPACE_NAME,
@@ -79,25 +85,25 @@ async def analyze_video(video: UploadFile = File(...)):
                     images={"image": frame.image_np},
                     use_cache=False,
                 )
-                # Workflow returns board_state_json: {"e1": "white_king", "g4": "black_bishop", ...}
                 raw = result[0].get("board_state_json", {}) if result else {}
                 if isinstance(raw, str):
                     import json as _json
                     raw = _json.loads(raw)
-                # Normalise to python-chess symbols: "white_king" -> "K", "black_pawn" -> "p"
-                PIECE_MAP = {
-                    "white_king": "K", "white_queen": "Q", "white_rook": "R",
-                    "white_bishop": "B", "white_knight": "N", "white_pawn": "P",
-                    "black_king": "k", "black_queen": "q", "black_rook": "r",
-                    "black_bishop": "b", "black_knight": "n", "black_pawn": "p",
-                }
                 board = {sq: PIECE_MAP[piece] for sq, piece in raw.items() if piece in PIECE_MAP}
-                piece_count = len(board)
-                print(f"[boardflow] frame {frame.index} pieces={piece_count} board={dict(sorted(board.items()))}")
-                board_states.append(board if board else None)
+                print(f"[boardflow] frame {frame.index} pieces={len(board)} board={dict(sorted(board.items()))}")
+                return frame.index, board if board else None
             except Exception as e:
                 print(f"[boardflow] frame {frame.index} failed: {e}")
-                board_states.append(None)
+                return frame.index, None
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        board_states_dict: dict[int, object] = {}
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(call_gemini, frame): frame for frame in frames}
+            for future in as_completed(futures):
+                idx, board = future.result()
+                board_states_dict[idx] = board
+        board_states = [board_states_dict.get(i) for i in range(len(frames))]
 
         # Diagnostic: how many unique board states did we get?
         unique = len({str(sorted(s.items())) for s in board_states if s})
