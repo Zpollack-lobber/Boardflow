@@ -61,14 +61,11 @@ def boards_to_move(prev: dict[str, str],
                     return move
 
     # ── Strategy 5: best-match fallback ──────────────────────────────────────
-    # When the diff is noisy, score every legal move by how well its resulting
-    # position matches the detected curr board, and pick the best one.
-    # Only accept if the best move scores better than "no move happened" —
-    # this eliminates phantom detections on frames with no real move.
-    null_score = _board_match_score(curr_clean, chess_board)
-
+    # Score every legal move by how well its resulting position matches the
+    # detected board. The -2 penalty in _board_match_score means wrong-square
+    # detections hurt, so the correct move scores significantly higher.
     best_move  = None
-    best_score = null_score  # must beat the baseline to be accepted
+    best_score = -9999
     for move in chess_board.legal_moves:
         chess_board.push(move)
         score = _board_match_score(curr_clean, chess_board)
@@ -77,7 +74,7 @@ def boards_to_move(prev: dict[str, str],
             best_score = score
             best_move  = move
 
-    if best_move and best_score > null_score:
+    if best_move and best_score >= 10:
         return best_move
 
     return None
