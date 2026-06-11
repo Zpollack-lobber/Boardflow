@@ -109,6 +109,7 @@ async def analyze_video(video: UploadFile = File(...)):
         moves_san = []
         prev_state = None
         last_move_frame = -999
+        last_move_obj = None
         MIN_MOVE_GAP = 2  # at 2fps = 1.5s minimum per move
 
         for idx, state in enumerate(board_states):
@@ -123,15 +124,23 @@ async def analyze_video(video: UploadFile = File(...)):
                 continue
 
             move = boards_to_move(prev_state, state, chess_board)
-            if move and move in chess_board.legal_moves:
+           if move and move in chess_board.legal_moves:
                 san = chess_board.san(move)
+                # Deduplicate: skip if same move as last detected
                 if moves_san and san == moves_san[-1]:
                     prev_state = state
                     continue
+                # Anti-oscillation: skip if this move reverses the last one
+                if _obj is not None:
+                    if (move.from_square == last_move_obj.to_square and
+                            move.to_square == last_move_obj.from_square):
+                        prev_state = state
+                        continue
                 moves_san.append(san)
                 chess_board.push(move)
                 last_move_frame = idx
-                print(f"[boardflow] frame {idx}: {san}")
+                last_move_obj = move
+               print(f"[boardflow] frame {idx}: {san}")
 
             prev_state = state
 
