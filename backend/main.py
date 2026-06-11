@@ -29,23 +29,6 @@ async def serve_frontend():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 
-def _infer_with_retry(client, image_np, model_id, max_retries=3):
-    last_exc = None
-    for attempt in range(max_retries):
-        try:
-            result = client.infer(image_np, model_id=model_id)
-            return result.get("predictions", [])
-        except Exception as e:
-            last_exc = e
-            err_str = str(e)
-            if any(c in err_str for c in ["524", "520", "timeout", "connection"]):
-                wait = 2 ** attempt
-                print(f"[boardflow] attempt {attempt+1}/{max_retries} failed, retrying in {wait}s: {err_str[:120]}")
-                time.sleep(wait)
-            else:
-                raise
-    raise last_exc
-
 
 @app.post("/api/analyze")
 async def analyze_video(video: UploadFile = File(...)):
@@ -65,10 +48,19 @@ async def analyze_video(video: UploadFile = File(...)):
         board_states = []
         for frame in frames:
             try:
-                raw_preds = _infer_with_retry(client, frame.image_np, ROBOFLOW_MODEL_ID)
+                result = client.run_workflow(
+                    workspace_name="zachs-workspace-cnn1l",
+                    workflow_id="soccer-ball-video-detector-1781110679341",
+                    images={"image": frame.image_np},
+                    use_cache=True,
+                )
                 if frame.index == 0:
-                    classes = [p["class"] for p in raw_preds]
-                    print(f"[boardflow] frame 0: {len(raw_preds)} pieces, classes={classes[:6]}")
+                    print(f"[boardflow] frame 0 raw workflow result: {str(result)[:600]}")
+                # result is typically a list with one dict per image
+                frame_result = result[0] if isinstance(result, list) else result
+                raw_preds = frame_result.get("predictions") or []
+                if isinstance(raw_preds, dict):
+                    raw_preds = list(raw_preds.values())
                 h_px, w_px = frame.image_np.shape[:2]
                 board = predictions_to_board(raw_preds, white_at_bottom=True, image_width=w_px, image_height=h_px)
                 board_states.append(board)
