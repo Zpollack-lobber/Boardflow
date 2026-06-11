@@ -8,9 +8,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).parent))
 from frame_extractor import extract_key_frames
-from board_detector  import predictions_to_board
+from board_detector  import predictions_to_board, extract_calibration, detect_orientation
 from move_detector   import boards_to_move, init_chess_board
-from board_detector  import detect_orientation
 from analyzer        import analyze_game
 import chess
 
