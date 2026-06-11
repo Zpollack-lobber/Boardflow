@@ -74,7 +74,7 @@ def boards_to_move(prev: dict[str, str],
             best_score = score
             best_move  = move
 
-    if best_move and best_score >= 10:
+    if best_move and best_score >= 7:
         return best_move
 
     return None
